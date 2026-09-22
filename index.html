@@ -673,14 +673,51 @@ if('speechSynthesis' in window){ pickVoice(); window.speechSynthesis.onvoicescha
 /* 単独で読ませると不自然になる文字の読み */
 var READ={'ー':'ノバス','。':'マル',
   '0':'ゼロ','1':'イチ','2':'ニ','3':'サン','4':'ヨン','5':'ゴ','6':'ロク','7':'ナナ','8':'ハチ','9':'キュウ'};
+/* iPadOS Safari は「ユーザー操作の中で、実際に音の出る発話を1回」行うまで
+   音声合成を鳴らしてくれない。解錠できたかを onstart / onend で確かめ、
+   できていなければ次に画面へ触れたときにやり直す。 */
+var speechReady=false, lastPrime=0;
+
+function makeUtterance(text){
+  var u=new SpeechSynthesisUtterance(text);
+  u.lang='ja-JP'; u.rate=S.rate; u.pitch=S.pitch;
+  if(!theVoice) pickVoice();          /* 声の一覧は遅れて届くことがある */
+  if(theVoice) u.voice=theVoice;
+  u.onstart=function(){ speechReady=true; };
+  u.onend=function(){ speechReady=true; };
+  return u;
+}
+
 function say(text, opt){
   if(!S.speak || !('speechSynthesis' in window) || !text) return;
   try{
-    if(S.cancelPrev || (opt&&opt.force)) window.speechSynthesis.cancel();
-    var u=new SpeechSynthesisUtterance(text);
-    u.lang='ja-JP'; u.rate=S.rate; u.pitch=S.pitch;
-    if(theVoice) u.voice=theVoice;
-    window.speechSynthesis.speak(u);
+    var ss=window.speechSynthesis;
+    if(ss.paused) ss.resume();                       /* 一時停止で詰まった状態から戻す */
+    if(S.cancelPrev || (opt&&opt.force)) ss.cancel();
+    var u=makeUtterance(text);
+    ss.speak(u);
+    /* 投入したのに始まらない（iOSで詰まった）ときは一度だけ入れ直す */
+    setTimeout(function(){
+      try{
+        if(!ss.speaking && ss.pending){ ss.cancel(); ss.speak(makeUtterance(text)); }
+        else if(ss.paused) ss.resume();
+      }catch(e2){}
+    }, 400);
+  }catch(e){}
+}
+
+/* 音声合成の解錠（必ずユーザー操作の中から呼ぶこと） */
+function primeSpeech(text){
+  if(speechReady || !('speechSynthesis' in window)) return;
+  var now=Date.now();
+  if(now-lastPrime < 1200) return;
+  lastPrime=now;
+  try{
+    var ss=window.speechSynthesis;
+    if(ss.paused) ss.resume();
+    var u=makeUtterance(text||'ア');
+    if(!text) u.volume=0.02;          /* 合図だけの解錠はほとんど聞こえない音量で */
+    ss.speak(u);
   }catch(e){}
 }
 function sayChar(ch){ say(READ[ch]||ch); }
@@ -796,6 +833,7 @@ pad.addEventListener('pointerdown', function(e){
   e.preventDefault();
   activeId=e.pointerId;
   try{ pad.setPointerCapture(activeId); }catch(err){}
+  if(!speechReady && S.speak) primeSpeech();   /* ここもユーザー操作の中 */
   if(gapTimer){ clearTimeout(gapTimer); gapTimer=null; }
   if(fadeReq){ cancelAnimationFrame(fadeReq); fadeReq=null; strokes=[]; }
   /* 即確定の直後なら、取り消せるよう筆跡を控えておく（判断は書き終わりに行う） */
@@ -1176,7 +1214,7 @@ $('tSpeak').addEventListener('click', function(){
   S.speak=!S.speak; saveSettings(); updateToggles();
   if($('sheet').classList.contains('on')) buildSheet();
   toast(S.speak?'よみあげ ON':'よみあげ OFF');
-  if(S.speak) say('よみあげ おん。', {force:true});
+  if(S.speak){ speechReady=false; primeSpeech('よみあげ おん。'); }
 });
 $('tLog').addEventListener('click', function(){
   S.logEnabled=!S.logEnabled; saveSettings(); updateToggles();
@@ -1346,20 +1384,17 @@ function boot(){
     if(started) return;
     started=true;
     st.classList.add('off');
-    try{
-      if('speechSynthesis' in window){
-        var u=new SpeechSynthesisUtterance(' ');
-        u.volume=0; window.speechSynthesis.speak(u);
-      }
-    }catch(e){}
+    /* ここはユーザー操作の中。挨拶をそのまま解錠に使う（iOSの制限） */
+    if(S.speak) primeSpeech('じゅんびが できました。かいて ください。');
     try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){}
     applyWakeLock(); sizePad();
-    setTimeout(function(){ say('じゅんびが できました。かいて ください。', {force:true}); }, 350);
   }
   st.addEventListener('pointerdown', go);
   st.addEventListener('click', go);
   document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState==='visible') applyWakeLock();
+    if(document.visibilityState!=='visible') return;
+    applyWakeLock();
+    try{ if('speechSynthesis' in window && window.speechSynthesis.paused) window.speechSynthesis.resume(); }catch(e){}
   });
 }
 window.addEventListener('resize', sizePad);
