@@ -56,6 +56,8 @@ button{font-family:inherit;color:inherit;background:none;border:none;padding:0}
 header{height:56px;flex:0 0 auto;display:flex;align-items:center;
   padding:0 var(--edge);border-bottom:1px solid var(--outline);gap:12px}
 header .brand{font-size:20px;font-weight:600;letter-spacing:.02em}
+header .build{font-size:12px;color:var(--on-surface-variant);white-space:nowrap;
+  align-self:flex-end;padding-bottom:6px}
 header .sp{flex:1}
 #gear{width:52px;height:52px;border-radius:50%;display:grid;place-items:center}
 #gear:active{background:var(--surface-variant)}
@@ -182,6 +184,7 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   text-align:center;padding:24px}
 #start .in{font-size:28px;font-weight:600;line-height:1.7}
 #start .in small{display:block;font-size:16px;color:var(--on-surface-variant);margin-top:14px;font-weight:400}
+#start .in small#buildStart{font-size:13px;margin-top:26px;opacity:.75}
 #start.off{display:none}
 #toast{position:fixed;left:50%;bottom:40px;transform:translateX(-50%);z-index:40;
   background:rgba(32,33,36,.92);color:#fff;padding:12px 22px;border-radius:24px;font-size:17px;
@@ -198,6 +201,7 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
 <div id="app">
   <header>
     <div class="brand">Asa-Com2</div>
+    <div class="build" id="build" aria-label="このアプリの更新日時"></div>
     <div class="sp"></div>
     <button id="gear" aria-label="設定">
       <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7.03 7.03 0 00-1.62-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54c-.58.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 00-.6.22L2.71 8.84a.5.5 0 00.12.64l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.5.5 0 00-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>
@@ -259,7 +263,7 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   <div id="sheetBody"></div>
 </div>
 
-<div id="start"><div class="in">がめんを さわって はじめる<small>（はじめの1回だけ。音を出すために必要です）</small></div></div>
+<div id="start"><div class="in">がめんを さわって はじめる<small>（はじめの1回だけ。音を出すために必要です）</small><small id="buildStart"></small></div></div>
 <div id="toast"></div>
 
 <script>
@@ -839,6 +843,16 @@ return { recognize:recognize, isZigzag:isZigzag, markOf:markOf, inkOf:inkOf,
 (function(){
 'use strict';
 function $(id){ return document.getElementById(id); }
+
+/* ---------- このアプリの更新日時 ----------
+   リリースのたびに tools/stamp.js が下の1行を書き換える（日本時間） */
+var BUILD='2026-09-23 00:56';  /* ==BUILD== */
+
+function showBuild(){
+  var txt='更新 '+BUILD;
+  var h=$('build'); if(h) h.textContent=txt;
+  var s2=$('buildStart'); if(s2) s2.textContent=txt;
+}
 
 /* ---------- 設定 ---------- */
 var SKEY='asacom2.settings', LKEY='asacom2.log';
@@ -1616,6 +1630,7 @@ function applySettings(){
 
 /* ---------- 起動 ---------- */
 function boot(){
+  showBuild();
   applySettings(); renderLog(); renderRow();
   var st=$('start');
   function go(){

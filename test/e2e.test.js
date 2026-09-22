@@ -56,6 +56,7 @@ const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textCo
     window.SpeechSynthesisUtterance = function (t) { this.text = t; };
   });
   await page.goto(FILE);
+  const buildOnStart = await page.$eval('#buildStart', e => e.textContent).catch(() => '');
   await page.click('#start');
   await page.waitForTimeout(500);
 
@@ -77,6 +78,14 @@ const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textCo
     if (!ok) ng++;
     console.log(`  ${ok ? '✓' : '✗'} ${name}${ok ? '' : `  期待:${want} / 実際:${got}`}`);
   };
+
+  // 0. 更新日時（どの版が動いているか分かるように出している）
+  {
+    const start = buildOnStart;
+    const head = await page.$eval('#build', e => e.textContent).catch(() => '');
+    const ok = /^更新 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(head) && head === start;
+    expect('ヘッダーと起動画面に更新日時が出る', ok ? 'ok' : `head=${head} start=${start}`, 'ok');
+  }
 
   // 1. カ を書く
   await draw(page, place(T.カ, box, S, OX, OY));
