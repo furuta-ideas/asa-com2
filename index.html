@@ -86,7 +86,7 @@ body.logHidden #log,body.logHidden #logOff{display:none}
 .cell .ch{position:absolute;right:3px;bottom:1px;
   font-size:calc((var(--rowh)*var(--font-scale) - 26px)*.30);font-weight:700;
   line-height:1;color:var(--primary);background:var(--surface);padding:1px 3px;border-radius:5px}
-.cell.low .ch{color:var(--on-surface);box-shadow:inset 0 -4px 0 var(--warn)}
+.cell.low .ch{color:#B06000;box-shadow:inset 0 -3px 0 var(--warn)}
 .cell.hi{border-color:var(--primary);background:rgba(26,115,232,.10)}
 .cell.del{border-color:var(--danger);background:rgba(234,67,53,.14)}
 #rowEmpty{flex:1;color:var(--on-surface-variant);opacity:.7;
@@ -684,7 +684,10 @@ function allowed(kind, opt){
   return true;
 }
 
-var W_CNN = 0.72;   /* 最終スコアに占める CNN の割合（残りが筆画マッチング） */
+/* 最終スコア ＝ CNN の確からしさ ＋ 0.30 × 筆画マッチング（上限1.0）
+   足し算にしているのは、画数が手本と違う字（指で書くと頻繁に起きる）で
+   筆画マッチングが 0 になっても、それだけで不利にならないようにするため。 */
+var W_TMPL = 0.30;
 
 function recognize(strokes, opt){
   opt = opt||{};
@@ -716,8 +719,8 @@ function recognize(strokes, opt){
     if(sum<=0) sum=1;
     for(i=0;i<keep.length;i++){
       ch=cls[keep[i]];
-      cands.push({ch:ch, cnn:probs[keep[i]]/sum, tmpl:tscore[ch]||0,
-                  score: W_CNN*(probs[keep[i]]/sum) + (1-W_CNN)*(tscore[ch]||0)});
+      var pv=probs[keep[i]]/sum, tv=tscore[ch]||0;
+      cands.push({ch:ch, cnn:pv, tmpl:tv, score: Math.min(1, pv + W_TMPL*tv)});
     }
   } else {
     for(ch in tscore) cands.push({ch:ch, cnn:0, tmpl:tscore[ch], score:tscore[ch]});
@@ -846,7 +849,7 @@ function $(id){ return document.getElementById(id); }
 
 /* ---------- このアプリの更新日時 ----------
    リリースのたびに tools/stamp.js が下の1行を書き換える（日本時間） */
-var BUILD='2026-09-23 00:56';  /* ==BUILD== */
+var BUILD='2026-09-23 01:08';  /* ==BUILD== */
 
 function showBuild(){
   var txt='更新 '+BUILD;
@@ -859,7 +862,7 @@ var SKEY='asacom2.settings', LKEY='asacom2.log';
 var DEF={
   strokeGapMs:400, fastCommit:true, strictness:'normal',
   useDigits:true, digitsOnly:false, candidateMs:4000,
-  zigzag:'normal', penWidth:'mid', guide:'cross',
+  zigzag:'normal', penWidth:'mid', guide:'cross', alwaysGuess:true,
   fontScale:'normal', logRatio:'normal', showKeys:true, highContrast:false,
   speak:true, voiceURI:null, rate:1.0, pitch:1.05, sound:true,
   cancelPrev:false, sayEmptyDelete:true, sayFail:true, touchTick:true,
@@ -877,16 +880,13 @@ function saveSettings(){ try{ localStorage.setItem(SKEY, JSON.stringify(S)); }ca
 /* CNN と筆画マッチングを合わせたスコアで較正した値（test/recognize.test.js 参照）
    即確定＝迷わず読めたとき / 受理＝待ち時間のあとで確定してよい下限 /
    あやしい＝ここを下回ったら黄色い下線を付ける */
+/* 新しいスコア（CNN＋0.3×筆画、上限1）で較正した値
+   正解したときのスコアは中央値 0.99・5%点 0.71、取り違えたときは中央値 0.44 */
 var THRESH={
-  instant:{loose:0.60, normal:0.68, strict:0.78},
-  accept :{loose:0.35, normal:0.45, strict:0.58},
-  low    :{loose:0.52, normal:0.60, strict:0.68}
+  instant:{loose:0.75, normal:0.85, strict:0.92},  /* 待たずに確定してよい */
+  accept :{loose:0.55, normal:0.70, strict:0.85},  /* 「近い字に寄せる」OFF のときの下限 */
+  low    :{loose:0.60, normal:0.70, strict:0.80}   /* これ未満は「自信が低い」印 */
 };
-/* 即確定は「CNNと筆画マッチングの両方が納得している」ときだけにする。
-   画をつなげて書いた字などは筆画マッチングが 0 になるので、待ち時間のあとで確定する */
-function agreesEnough(c){
-  return c && ((c.tmpl||0) >= 0.35 || (c.cnn||0) >= 0.88);
-}
 var RECOVER_MS=700;    /* 即確定を取り消して書き足しにできる時間 */
 var UNDO_HAN_MS=4000;  /* 半濁点に変換した直後、もう一度丸を書いたら「。」に戻す時間 */
 
@@ -1157,7 +1157,7 @@ function onStrokeEnd(){
   /* ④ 文字認識 */
   var res=Recog.recognize(strokes, {useDigits:S.useDigits, digitsOnly:S.digitsOnly, penRatio:penRatio(strokes)});
   var best=res.cands[0];
-  if(S.fastCommit && best && !res.continuable && agreesEnough(best)
+  if(S.fastCommit && best && !res.continuable
      && best.score>=THRESH.instant[S.strictness]){
     commitChar(res, true); return;
   }
@@ -1175,7 +1175,10 @@ function resolvePending(){
   if(mark==='daku' && lastCh && DAKU[lastCh]){ ghost=null; clearInk(); applyDaku(); return; }
   if(mark==='dot'){ handleDot(); return; }
   var r2=Recog.recognize(strokes, {useDigits:S.useDigits, digitsOnly:S.digitsOnly, penRatio:penRatio(strokes)});
-  if(r2.cands.length && r2.cands[0].score>=THRESH.accept[S.strictness]) commitChar(r2, false);
+  /* 「いちばん近い字にする」が ON なら、自信が低くても必ずどれかに決める
+     （自信の低い字はオレンジの下線付きで表示し、候補ボタンで直せる） */
+  if(r2.cands.length && (S.alwaysGuess || r2.cands[0].score>=THRESH.accept[S.strictness]))
+    commitChar(r2, false);
   else failRecognize();
 }
 
@@ -1481,6 +1484,8 @@ var SECTIONS=[
      o:[[200,'200ms'],[300,'300ms'],[400,'400ms（標準）'],[600,'600ms'],[800,'800ms'],[1000,'1000ms']]},
     {k:'fastCommit', l:'早く確定する', s:'はっきり読み取れたら待たずに発音します', sw:true},
     {k:'strictness', l:'読み取りのきびしさ', o:[['loose','ゆるい'],['normal','ふつう'],['strict','きびしい']]},
+    {k:'alwaysGuess', l:'読めなくても いちばん近い字にする',
+     s:'OFFにすると、自信が無いときは「認識できません」と言います', sw:true},
     {k:'useDigits', l:'数字をつかう', sw:true},
     {k:'digitsOnly', l:'数字だけモード', s:'数字と「ー」だけを読み取ります', sw:true},
     {k:'candidateMs', l:'候補を出す時間', s:'介助者が見て直すためのボタンです',

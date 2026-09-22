@@ -122,7 +122,8 @@ const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textCo
   expect('ジグザグで1文字消える', await row(page), '');
 
   // 6. 認識できない走り書き
-  /* どの字にも当てはまらない走り書き（格子のもつれ）*/
+  /* どの字にも当てはまらない走り書き（格子のもつれ）
+     既定（いちばん近い字にする＝ON）では、必ずどれかの字に寄せる */
   const scribble = [
     [{ x: .20, y: .20 }, { x: .80, y: .80 }],
     [{ x: .80, y: .20 }, { x: .20, y: .80 }],
@@ -133,8 +134,38 @@ const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textCo
   await draw(page, scribble);
   const sp = await page.evaluate(() => window.__spoken);
   console.log('  走り書き後の発話:', JSON.stringify(sp));
-  expect('読めないときは「認識できません。」と言う', sp.includes('認識できません。'), true);
+  expect('読めない筆跡でも「認識できません」と言わず何かに寄せる',
+    sp.length > 0 && !sp.includes('認識できません。'), true);
 
+  /* 設定で OFF（＋読み取りを「きびしい」）にすると、これまでどおり「認識できません」と言う */
+  {
+    const p2 = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+    await p2.addInitScript(() => {
+      window.__spoken = [];
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
+        getVoices: () => [{ name: 'Kyoko', lang: 'ja-JP', voiceURI: 'kyoko' }],
+        speak: u => window.__spoken.push(u.text),
+        cancel: () => {}, resume: () => {}, paused: false, speaking: false, pending: false, onvoiceschanged: null
+      }});
+      window.SpeechSynthesisUtterance = function (t) { this.text = t; this.volume = 1; };
+      try { localStorage.setItem('asacom2.settings',
+        JSON.stringify({ alwaysGuess: false, strictness: 'strict' })); } catch (e) {}
+    });
+    await p2.goto(FILE);
+    await p2.click('#start');
+    await p2.waitForTimeout(300);
+    const b2 = await p2.$eval('#pad', el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+    const sc2 = [
+      [{ x: .20, y: .20 }, { x: .80, y: .80 }], [{ x: .80, y: .20 }, { x: .20, y: .80 }],
+      [{ x: .20, y: .50 }, { x: .80, y: .50 }], [{ x: .50, y: .20 }, { x: .50, y: .80 }]
+    ].map(st => st.map(p => ({ x: b2.x + b2.w * p.x, y: b2.y + b2.h * p.y })));
+    await p2.evaluate(() => { window.__spoken.length = 0; });
+    await draw(p2, sc2);
+    const sp2 = await p2.evaluate(() => window.__spoken);
+    console.log('  （設定OFF時）走り書き後の発話:', JSON.stringify(sp2));
+    expect('設定を OFF（＋きびしい）にすると「認識できません」と言う', sp2.includes('認識できません。'), true);
+    await p2.close();
+  }
 
   if (errors.length) { console.log('\n⚠ JSエラー:'); errors.forEach(e => console.log('   ' + e)); }
   console.log(ng === 0 && errors.length === 0 ? '\n✅ E2E すべて合格' : `\n❌ ${ng} 件失敗 / JSエラー ${errors.length} 件`);
