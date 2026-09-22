@@ -35,7 +35,7 @@ async function draw(page, strokes) {
     await page.mouse.up();
     await page.waitForTimeout(90);   // 画と画の間（書き足し待ち 400ms より短い）
   }
-  await page.waitForTimeout(1200);   // 確定待ち（「。」は長め）
+  await page.waitForTimeout(1800);   // 確定待ち（書き足し待ち1000ms＋記号の判定）
 }
 const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textContent).join(''));
 
@@ -136,6 +136,48 @@ const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textCo
   console.log('  走り書き後の発話:', JSON.stringify(sp));
   expect('読めない筆跡でも「認識できません」と言わず何かに寄せる',
     sp.length > 0 && !sp.includes('認識できません。'), true);
+
+  /* 覚えさせる：候補ボタンで直すと、その筆跡を覚えて次から正しく読む */
+  {
+    const p3 = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+    await p3.addInitScript(() => {
+      window.__spoken = [];
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
+        getVoices: () => [{ name: 'Kyoko', lang: 'ja-JP', voiceURI: 'kyoko' }],
+        speak: u => window.__spoken.push(u.text),
+        cancel: () => {}, resume: () => {}, paused: false, speaking: false, pending: false, onvoiceschanged: null
+      }});
+      window.SpeechSynthesisUtterance = function (t) { this.text = t; this.volume = 1; };
+      try { localStorage.removeItem('asacom2.ink'); } catch (e) {}
+    });
+    await p3.goto(FILE);
+    await p3.click('#start');
+    await p3.waitForTimeout(300);
+    const b3 = await p3.$eval('#pad', el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+    const S3 = Math.min(b3.w, b3.h) * 0.5, OX3 = b3.w * 0.2, OY3 = b3.h * 0.15;
+    /* 「ア」を書いて、候補ボタンで別の字に直す（＝直した字として覚えさせる） */
+    const A = [[15, 26, 85, 26], [72, 14, 73, 40, 62, 64, 40, 82, 18, 92]];
+    await draw(p3, place(A, b3, S3, OX3, OY3));
+    const chips = await p3.$$('#cands .chip');
+    if (chips.length) {
+      const target = await chips[0].evaluate(e => e.textContent.trim().charAt(0));
+      await chips[0].click();
+      await p3.waitForTimeout(200);
+      const learned = await p3.evaluate(() => {
+        try { const o = JSON.parse(localStorage.getItem('asacom2.ink') || '{}'); return (o && o.ink) || {}; }
+        catch (e) { return {}; }
+      });
+      expect('候補ボタンで直すと、その筆跡を覚える', Object.keys(learned).includes(target) ? 'ok' : `覚えた字=${JSON.stringify(Object.keys(learned))} 直した字=${target}`, 'ok');
+      /* 同じ筆跡をもう一度書くと、覚えた字が選ばれる */
+      await p3.evaluate(() => { window.__spoken.length = 0; });
+      await draw(p3, place(A, b3, S3, OX3, OY3));
+      const row2 = await p3.$$eval('#cells .cell .ch', els => els.map(e => e.textContent));
+      expect('覚えた字が次の認識に効く', row2[row2.length - 1] === target ? 'ok' : `結果=${row2[row2.length - 1]} 期待=${target}`, 'ok');
+    } else {
+      expect('候補ボタンが出る', 'なし', 'あり');
+    }
+    await p3.close();
+  }
 
   /* 設定で OFF（＋読み取りを「きびしい」）にすると、これまでどおり「認識できません」と言う */
   {
