@@ -63,6 +63,13 @@ header .sp{flex:1}
 #gear:active{background:var(--surface-variant)}
 #gear svg{width:26px;height:26px;fill:var(--on-surface-variant)}
 
+#soundWarn{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:10px var(--edge);
+  background:#FEF7E0;color:#7A4E00;border-bottom:1px solid #F9AB00;font-size:15px}
+#soundWarn[hidden]{display:none}
+#soundWarn span{flex:1}
+#soundWarn button{border:2px solid #7A4E00;border-radius:18px;height:36px;padding:0 14px;
+  font-size:14px;font-weight:700;color:#7A4E00}
+#soundWarn #soundWarnClose{width:36px;padding:0}
 #main{flex:1;min-height:0;display:grid;grid-template-columns:var(--split)}
 body.logHidden #main{grid-template-columns:1fr 150px}
 body.logHidden #log,body.logHidden #logOff{display:none}
@@ -174,6 +181,10 @@ body.noKeys #keys{display:none}
 #sheet.on{transform:none}
 #sheet header{border-bottom:1px solid var(--outline)}
 #sheetBody{flex:1;overflow-y:auto;padding:8px 20px 40px}
+#diagBox{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+  line-height:1.5;background:var(--surface-variant);border:1px solid var(--outline);
+  border-radius:10px;padding:10px;margin-top:8px;max-height:260px;overflow:auto;
+  -webkit-user-select:text;user-select:text}
 .sec{margin-top:18px;font-size:13px;font-weight:700;color:var(--primary);letter-spacing:.06em}
 .item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--outline)}
 .item .lb{flex:1;font-size:16px}
@@ -241,6 +252,12 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
       <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7.03 7.03 0 00-1.62-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54c-.58.24-1.12.56-1.62.94l-2.39-.96a.5.5 0 00-.6.22L2.71 8.84a.5.5 0 00.12.64l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.5.5 0 00-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.58-.24 1.12-.56 1.62-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>
     </button>
   </header>
+
+  <div id="soundWarn" hidden>
+    <span>音が出ていません。<b>画面をもう一度さわる</b>か、⚙ の「音が出ないときの点検」をご覧ください</span>
+    <button id="soundWarnTest">音を出してみる</button>
+    <button id="soundWarnClose" aria-label="とじる">✕</button>
+  </div>
 
   <div id="main">
     <section id="left">
@@ -950,7 +967,7 @@ function $(id){ return document.getElementById(id); }
 
 /* ---------- このアプリの更新日時 ----------
    リリースのたびに tools/stamp.js が下の1行を書き換える（日本時間） */
-var BUILD='2026-09-23 08:20';  /* ==BUILD== */
+var BUILD='2026-09-23 08:38';  /* ==BUILD== */
 
 function showBuild(){
   var txt='更新 '+BUILD;
@@ -967,6 +984,7 @@ var DEF={
   useDigits:false, digitsOnly:false, candidateMs:4000,
   zigzag:'normal', penWidth:'mid', guide:'cross', alwaysGuess:true,
   kanaFirst:true, useInk:true, learnOnFix:true,
+  speechWay:0, quietForSpeech:true,
   fontScale:'normal', logRatio:'normal', showKeys:true, highContrast:false,
   speak:true, voiceURI:null, rate:1.0, pitch:1.05, sound:true,
   cancelPrev:false, sayEmptyDelete:true, sayFail:true, touchTick:true,
@@ -1033,104 +1051,156 @@ if('speechSynthesis' in window){ pickVoice(); window.speechSynthesis.onvoicescha
 /* 単独で読ませると不自然になる文字の読み */
 var READ={'ー':'ノバス','。':'マル',
   '0':'ゼロ','1':'イチ','2':'ニ','3':'サン','4':'ヨン','5':'ゴ','6':'ロク','7':'ナナ','8':'ハチ','9':'キュウ'};
-/* iPadOS Safari は「ユーザー操作の中で、実際に音の出る発話を1回」行うまで
-   音声合成を鳴らしてくれない。解錠できたかを onstart / onend で確かめ、
-   できていなければ次に画面へ触れたときにやり直す。 */
-var speechReady=false, lastPrime=0;
 
-function makeUtterance(text){
+/* ============================================================
+   音声まわり
+   iPadOS Safari で「起動しても声が出ない」ことがあるため、
+   ・発話のエラー（not-allowed / audio-busy など）を必ず記録する
+   ・鳴らないときは方法を変えて順に試す（下の LADDER）
+   ・効いた方法を覚えて、次からはそれを使う
+   ・何が起きたかを設定の「音が出ないときの点検」で読めるようにする
+   ============================================================ */
+var speechReady=false, lastPrime=0;
+var DIAG={events:[], lastError:null, worked:null};
+function diag(kind, detail){
+  DIAG.events.push({t:new Date(), kind:kind, detail:(detail===undefined?'':String(detail))});
+  if(DIAG.events.length>40) DIAG.events.shift();
+}
+
+/* 発話の方法（上から順に試す）
+   noVoice：声を指定しない（端末の既定にまかせる）
+   quiet  ：先に効果音（WebAudio）を止める — iOSでは効果音が音声合成を黙らせることがある */
+var LADDER=[
+  {id:0, name:'そのまま',                 noVoice:false, quiet:false},
+  {id:1, name:'効果音を止めてから',         noVoice:false, quiet:true },
+  {id:2, name:'声を指定しないで',           noVoice:true,  quiet:false},
+  {id:3, name:'声を指定せず効果音も止めて',  noVoice:true,  quiet:true }
+];
+function wayOf(id){
+  for(var i=0;i<LADDER.length;i++) if(LADDER[i].id===id) return LADDER[i];
+  return LADDER[0];
+}
+
+function makeUtterance(text, way){
+  way = way || wayOf(S.speechWay);
   var u=new SpeechSynthesisUtterance(text);
   u.lang='ja-JP'; u.rate=S.rate; u.pitch=S.pitch;
-  if(!theVoice) pickVoice();          /* 声の一覧は遅れて届くことがある */
-  if(theVoice) u.voice=theVoice;
-  u.onstart=function(){ speechReady=true; };
+  if(!way.noVoice){
+    if(!theVoice) pickVoice();        /* 声の一覧は遅れて届くことがある */
+    if(theVoice) u.voice=theVoice;
+  }
+  u.onstart=function(){
+    speechReady=true; DIAG.worked=way.name;
+    if(S.speechWay!==way.id){ S.speechWay=way.id; saveSettings(); }
+    diag('鳴った', way.name+'／'+text);
+    hideSoundWarn();
+  };
   u.onend=function(){ speechReady=true; };
+  u.onerror=function(ev){
+    var code=(ev && ev.error) ? ev.error : 'unknown';
+    DIAG.lastError=code;
+    diag('エラー', code+'／'+way.name);
+    if(code==='not-allowed') speechReady=false;       /* 次の操作で解錠し直す */
+    if(code==='audio-busy' || code==='synthesis-unavailable') quietAudio();
+  };
   return u;
+}
+
+/* 効果音（WebAudio）を止める。iOS で音声合成と取り合いになるのを避ける */
+function quietAudio(){
+  try{ if(AC && AC.state==='running') AC.suspend(); }catch(e){}
+}
+
+function speakWith(text, way, force){
+  if(!('speechSynthesis' in window) || !text) return;
+  way = way || wayOf(S.speechWay);
+  try{
+    var ss=window.speechSynthesis;
+    if(way.quiet || S.quietForSpeech) quietAudio();
+    if(ss.paused) ss.resume();
+    if(force) ss.cancel();
+    var u=makeUtterance(text, way);
+    ss.speak(u);
+    diag('発話した', way.name+'／'+text);
+  }catch(e){ diag('例外', e && e.message); }
 }
 
 function say(text, opt){
   if(!S.speak || !('speechSynthesis' in window) || !text) return;
-  try{
-    var ss=window.speechSynthesis;
-    if(ss.paused) ss.resume();                       /* 一時停止で詰まった状態から戻す */
-    if(S.cancelPrev || (opt&&opt.force)) ss.cancel();
-    var u=makeUtterance(text);
-    ss.speak(u);
-    /* 投入したのに始まらない（iOSで詰まった）ときは一度だけ入れ直す */
-    setTimeout(function(){
-      try{
-        if(!ss.speaking && ss.pending){ ss.cancel(); ss.speak(makeUtterance(text)); }
-        else if(ss.paused) ss.resume();
-      }catch(e2){}
-    }, 400);
-  }catch(e){}
+  speakWith(text, null, !!(S.cancelPrev || (opt&&opt.force)));
 }
 
-/* 音声合成の解錠（必ずユーザー操作の中から呼ぶこと）
-   force=true のときは間隔をあけずにやり直す */
-function primeSpeech(text, force){
+/* 音声合成の解錠（必ずユーザー操作の中から呼ぶこと） */
+function primeSpeech(text, force, way){
   if(speechReady || !('speechSynthesis' in window)) return;
   var now=Date.now();
   if(!force && now-lastPrime < 1200) return;
   lastPrime=now;
-  try{
-    var ss=window.speechSynthesis;
-    if(ss.paused) ss.resume();
-    var u=makeUtterance(text||'ア');
-    if(!text) u.volume=0.02;          /* 合図だけの解錠はほとんど聞こえない音量で */
-    ss.speak(u);
-  }catch(e){}
+  speakWith(text||'ア', way, false);
 }
 
-/* 起動時の音声立ち上げ。
-   実機では「読み上げを OFF→ON する」と鳴るようになる現象があったため、
-   その手順をアプリ自身が行う。あわせて、声の一覧が遅れて届く端末のために
-   鳴り始めるまで数回やり直す。必ずユーザー操作の中から呼ぶこと。 */
+/* 起動時の音声立ち上げ。必ずユーザー操作の中から呼ぶこと。
+   まず読み上げを OFF→ON し、覚えている方法で挨拶する。
+   鳴らなければ 0.9秒ごとに方法を変えて試し、鳴った方法を覚える。 */
 var GREETING='じゅんびが できました。かいて ください。';
 function bootSpeech(){
-  if(!('speechSynthesis' in window)) return;
+  if(!('speechSynthesis' in window)){ diag('非対応','この端末では音声合成が使えません'); return; }
+  diag('起動', '声の数='+VOICES.length+'／覚えている方法='+wayOf(S.speechWay).name);
   try{
     var ss=window.speechSynthesis;
     ss.cancel();                       /* 詰まっている状態を一度きれいにする */
     S.speak=false; updateToggles();    /* 読み上げ OFF */
-    S.speak=true;  updateToggles();    /* 読み上げ ON（ここまでが自動の切り替え） */
+    S.speak=true;  updateToggles();    /* 読み上げ ON（自動の切り替え） */
     speechReady=false;
     if(ss.paused) ss.resume();
-    primeSpeech(GREETING, true);       /* 操作の中での発話＝ここで解錠される */
-  }catch(e){}
-  /* 声の一覧が遅れて届く端末のために、鳴り始めるまで数回だけやり直す。
-     鳴り始めたとき／本人が書き始めたときは、その場でやめる（挨拶の繰り返しを避ける） */
-  var tries=0;
+  }catch(e){ diag('例外', e && e.message); }
+  primeSpeech(GREETING, true, wayOf(S.speechWay));   /* 操作の中での発話＝ここで解錠される */
+
+  var step=0;
   var timer=setInterval(function(){
     var ss2=null;
     try{ ss2=window.speechSynthesis; }catch(e2){}
     if(ss2 && ss2.speaking) speechReady=true;
-    if(speechReady || tries>=3 || strokes.length || ROW.length){ clearInterval(timer); return; }
-    tries++;
+    if(speechReady || strokes.length || ROW.length){ clearInterval(timer); return; }
+    if(step>=LADDER.length){
+      clearInterval(timer);
+      diag('あきらめ','どの方法でも鳴りませんでした');
+      showSoundWarn();
+      return;
+    }
+    var way=LADDER[step++];
     pickVoice();                       /* 声の一覧が届いていれば選び直す */
-    try{
-      if(ss2){ if(ss2.paused) ss2.resume(); ss2.cancel(); }
-    }catch(e3){}
-    primeSpeech(GREETING, true);
-  }, 800);
+    try{ if(ss2){ if(ss2.paused) ss2.resume(); ss2.cancel(); } }catch(e3){}
+    diag('やり直し', way.name);
+    speakWith(GREETING, way, false);
+  }, 900);
 }
+
+/* 音が出ていないことを介助者に知らせる帯 */
+function showSoundWarn(){ var el=$('soundWarn'); if(el) el.hidden=false; }
+function hideSoundWarn(){ var el=$('soundWarn'); if(el) el.hidden=true; }
+
 function sayChar(ch){ say(READ[ch]||ch); }
 function shutUp(){ try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(e){} }
 
 /* ---------- 効果音（耳で状態がわかるように） ---------- */
-var AC=null;
+var AC=null, acSuspendTimer=null;
 function tone(freq, dur, vol){
   if(!S.sound) return;
   try{
     AC=AC||new (window.AudioContext||window.webkitAudioContext)();
     if(AC.state==='suspended') AC.resume();
+    var d=dur||0.09;
     var o=AC.createOscillator(), g=AC.createGain();
     o.type='sine'; o.frequency.value=freq;
     g.gain.setValueAtTime(0.0001, AC.currentTime);
     g.gain.exponentialRampToValueAtTime(vol||0.12, AC.currentTime+0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime+(dur||0.09));
+    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime+d);
     o.connect(g); g.connect(AC.destination);
-    o.start(); o.stop(AC.currentTime+(dur||0.09)+0.02);
+    o.start(); o.stop(AC.currentTime+d+0.02);
+    /* 鳴らし終えたら止めておく。iOS では鳴りっぱなしの音が音声合成を黙らせることがある */
+    if(acSuspendTimer) clearTimeout(acSuspendTimer);
+    acSuspendTimer=setTimeout(quietAudio, (d+0.15)*1000);
   }catch(e){}
 }
 var SND={
@@ -1326,7 +1396,10 @@ pad.addEventListener('pointerdown', function(e){
   e.preventDefault();
   activeId=e.pointerId;
   try{ pad.setPointerCapture(activeId); }catch(err){}
-  if(!speechReady && S.speak) primeSpeech();   /* ここもユーザー操作の中 */
+  if(!speechReady && S.speak){                 /* ここもユーザー操作の中 */
+    var w=wayOf(S.speechWay);
+    primeSpeech(null, false, w);
+  }
   if(gapTimer){ clearTimeout(gapTimer); gapTimer=null; }
   if(fadeReq){ cancelAnimationFrame(fadeReq); fadeReq=null; strokes=[]; }
   /* 即確定の直後なら、取り消せるよう筆跡を控えておく（判断は書き終わりに行う） */
@@ -1929,6 +2002,40 @@ function buildSheet(){
   });
   body.appendChild(bc);
 
+  /* 音が出ないときの点検 */
+  var sh=document.createElement('div'); sh.className='sec'; sh.textContent='音が出ないときの点検';
+  body.appendChild(sh);
+  var diagBox=document.createElement('div');
+  diagBox.id='diagBox'; diagBox.textContent=diagText();
+  body.appendChild(diagBox);
+  var wrap=document.createElement('div'); wrap.id='diagBtns';
+  LADDER.forEach(function(way){
+    var b=document.createElement('button');
+    b.className='act'; b.style.marginTop='6px';
+    b.textContent='テスト発話：'+way.name;
+    b.addEventListener('click', function(){
+      speechReady=false;
+      speakWith('テスト。あいうえお。', way, true);
+      setTimeout(function(){ diagBox.textContent=diagText(); }, 900);
+    });
+    wrap.appendChild(b);
+  });
+  var bt=document.createElement('button'); bt.className='act'; bt.style.marginTop='6px';
+  bt.textContent='効果音を鳴らしてみる';
+  bt.addEventListener('click', function(){ SND.ok(); setTimeout(function(){ diagBox.textContent=diagText(); }, 600); });
+  wrap.appendChild(bt);
+  var bcp=document.createElement('button'); bcp.className='act'; bcp.style.marginTop='6px';
+  bcp.textContent='点検の結果をコピー';
+  bcp.addEventListener('click', function(){
+    var t=diagText();
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(function(){ toast('コピーしました'); },
+                                            function(){ selectDiag(); });
+    } else selectDiag();
+  });
+  wrap.appendChild(bcp);
+  body.appendChild(wrap);
+
   var b1=document.createElement('button'); b1.className='act'; b1.textContent='設定を初期値にもどす';
   b1.addEventListener('click', function(){
     if(!confirm('設定を初期値にもどします。よろしいですか？（ログと おぼえた字は消えません）')) return;
@@ -1956,6 +2063,54 @@ function renderVoiceOptions(){
     sel.appendChild(op);
   });
 }
+/* 点検の内容（介助者がそのまま読み上げ／コピーできる文章） */
+function diagText(){
+  var ss=null;
+  try{ ss=window.speechSynthesis; }catch(e){}
+  var vs=[];
+  try{ vs=(ss && ss.getVoices ? ss.getVoices() : [])||[]; }catch(e2){}
+  var ja=vs.filter(function(v){ return /^ja/i.test(v.lang||''); });
+  var lines=[];
+  lines.push('Asa-Com2 音の点検  更新 '+BUILD);
+  lines.push('音声合成に対応：'+(('speechSynthesis' in window)?'はい':'いいえ'));
+  lines.push('声の数：'+vs.length+'（日本語 '+ja.length+'）');
+  lines.push('日本語の声：'+(ja.map(function(v){return v.name;}).join(' / ')||'なし'));
+  lines.push('選んでいる声：'+(theVoice?theVoice.name:'（指定なし）'));
+  if(ss) lines.push('いまの状態：speaking='+ss.speaking+' pending='+ss.pending+' paused='+ss.paused);
+  lines.push('効果音（WebAudio）：'+(AC?AC.state:'まだ使っていない'));
+  lines.push('鳴った実績：'+(speechReady?('あり（'+(DIAG.worked||'—')+'）'):'まだ無い'));
+  lines.push('最後のエラー：'+(DIAG.lastError||'なし'));
+  lines.push('読み上げ設定：'+(S.speak?'ON':'OFF')+'／効果音：'+(S.sound?'ON':'OFF'));
+  lines.push('できごと（新しい順）：');
+  for(var i=DIAG.events.length-1, n=0; i>=0 && n<12; i--, n++){
+    var e=DIAG.events[i];
+    var t=e.t, hh=('0'+t.getHours()).slice(-2), mm=('0'+t.getMinutes()).slice(-2), sc=('0'+t.getSeconds()).slice(-2);
+    lines.push('  '+hh+':'+mm+':'+sc+'  '+e.kind+'  '+e.detail);
+  }
+  return lines.join('\n');
+}
+function selectDiag(){
+  var el=document.getElementById('diagBox');
+  if(!el) return;
+  try{
+    var r=document.createRange(); r.selectNodeContents(el);
+    var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    toast('選択しました。長押しで コピー できます');
+  }catch(e){}
+}
+$('soundWarnTest').addEventListener('click', function(){
+  speechReady=false;
+  var way=wayOf(S.speechWay);
+  speakWith('テスト。きこえますか。', way, true);
+  setTimeout(function(){
+    if(!speechReady){
+      var next=LADDER[(way.id+1)%LADDER.length];
+      speakWith('テスト。きこえますか。', next, true);
+    }
+  }, 900);
+});
+$('soundWarnClose').addEventListener('click', hideSoundWarn);
+
 function openSheet(){ $('sheet').classList.add('on'); $('scrim').classList.add('on'); buildSheet(); }
 function closeSheet(){ $('sheet').classList.remove('on'); $('scrim').classList.remove('on'); }
 $('closeSheet').addEventListener('click', closeSheet);
@@ -2001,7 +2156,8 @@ function applySettings(){
 }
 
 /* テスト用の窓口（自動テストから中の値を確かめるため。通常の動作には影響しない） */
-window.__asacom2={ inkBonus:inkBonus, ink:function(){ return INK; }, settings:function(){ return S; } };
+window.__asacom2={ inkBonus:inkBonus, ink:function(){ return INK; }, settings:function(){ return S; },
+                   diag:function(){ return diagText(); } };
 
 /* ---------- 起動 ---------- */
 function boot(){
@@ -2014,8 +2170,10 @@ function boot(){
     st.classList.add('off');
     /* ここはユーザー操作の中。読み上げを OFF→ON してから挨拶する（iOSの制限への対処） */
     bootSpeech();
-    try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){}
+    /* ここでは AudioContext を作らない（効果音が音声合成を黙らせることがあるため。
+       効果音は最初に必要になった時点で用意し、鳴り終えたら止める） */
     applyWakeLock(); sizePad();
+    setTimeout(function(){ if(!speechReady && S.speak) showSoundWarn(); }, 5000);
   }
   st.addEventListener('pointerdown', go);
   st.addEventListener('click', go);

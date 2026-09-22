@@ -184,6 +184,88 @@ function check(name, cond, detail) {
     await page.close();
   }
 
+  /* --- 5. 効果音（WebAudio）が鳴っていると音声合成が黙る端末 --- */
+  {
+    console.log('\n[5] 効果音を鳴らした直後でも、音声が黙らない');
+    const page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+    await page.addInitScript(() => {
+      window.__spoken = []; window.__errors = [];
+      let unlocked = false;
+      window.__audioRunning = false;
+      const api = {
+        speaking: false, pending: false, paused: false,
+        getVoices: () => [{ name: 'Kyoko', lang: 'ja-JP', voiceURI: 'kyoko' }],
+        speak(u) {
+          const gesture = !!(navigator.userActivation && navigator.userActivation.isActive);
+          if (!unlocked) { if (gesture) unlocked = true; else return; }
+          if (window.__audioRunning) {            // 効果音が動いている間は鳴らない端末
+            window.__errors.push(u.text);
+            if (u.onerror) setTimeout(() => u.onerror({ error: 'audio-busy' }), 0);
+            return;
+          }
+          window.__spoken.push(u.text);
+          if (u.onstart) setTimeout(() => u.onstart(), 0);
+          setTimeout(() => { if (u.onend) u.onend(); }, 10);
+        },
+        cancel() {}, resume() { api.paused = false; }, onvoiceschanged: null
+      };
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: api });
+      window.SpeechSynthesisUtterance = function (t) { this.text = t; this.volume = 1; };
+      class FakeCtx {
+        constructor() { this.state = 'running'; window.__audioRunning = true; }
+        createOscillator() { return { type: '', frequency: { value: 0 }, connect() {}, start() {}, stop() {} }; }
+        createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }; }
+        get currentTime() { return 0; }
+        resume() { this.state = 'running'; window.__audioRunning = true; return Promise.resolve(); }
+        suspend() { this.state = 'suspended'; window.__audioRunning = false; return Promise.resolve(); }
+      }
+      window.AudioContext = FakeCtx; window.webkitAudioContext = FakeCtx;
+    });
+    await page.goto(FILE);
+    await page.click('#start');
+    await page.waitForTimeout(400);
+    check('起動の挨拶が鳴る', (await page.evaluate(() => window.__spoken)).some(t => t.indexOf('じゅんび') >= 0));
+
+    const box = await page.$eval('#pad', el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+    const S = Math.min(box.w, box.h) * 0.5;
+    await page.evaluate(() => { window.__spoken.length = 0; window.__errors.length = 0; });
+    /* 書くと、触れた合図の効果音（WebAudio）が鳴り、その直後に文字を発音する */
+    await draw(page, place(KA, box, S, box.w * 0.2, box.h * 0.15));
+    const spoken = await page.evaluate(() => window.__spoken);
+    const errors = await page.evaluate(() => window.__errors);
+    check('効果音のあとでも文字が発音される', spoken.indexOf('カ') >= 0,
+      `鳴った=${JSON.stringify(spoken)} / 黙った=${errors.length}件`);
+    check('発話のために効果音を止めている', await page.evaluate(() => window.__audioRunning === false));
+    await page.close();
+  }
+
+  /* --- 6. どうしても鳴らないときは、介助者に知らせる --- */
+  {
+    console.log('\n[6] まったく鳴らないときは画面に知らせる');
+    const page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+    await page.addInitScript(() => {
+      window.__spoken = [];
+      const api = { speaking:false, pending:false, paused:false,
+        getVoices: () => [{ name:'Kyoko', lang:'ja-JP', voiceURI:'kyoko' }],
+        speak(u){ if (u.onerror) setTimeout(() => u.onerror({ error: 'not-allowed' }), 0); },
+        cancel(){}, resume(){}, onvoiceschanged:null };
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: api });
+      window.SpeechSynthesisUtterance = function (t) { this.text = t; this.volume = 1; };
+    });
+    await page.goto(FILE);
+    await page.click('#start');
+    await page.waitForTimeout(6000);
+    const shown = await page.$eval('#soundWarn', el => !el.hidden);
+    check('「音が出ていません」の帯が出る', shown);
+    const diag = await page.evaluate(() => {
+      const ev = window.__asacom2 && window.__asacom2.diag ? window.__asacom2.diag() : null;
+      return ev;
+    });
+    check('エラーの内容を記録している（not-allowed）',
+      !!diag && diag.indexOf('not-allowed') >= 0, diag ? diag.split('\n').slice(0, 3).join(' / ') : 'なし');
+    await page.close();
+  }
+
   await browser.close();
   console.log(`\n${fails === 0 ? '✅ すべて合格' : '❌ ' + fails + ' 件 失敗'}\n`);
   process.exit(fails === 0 ? 0 : 1);
