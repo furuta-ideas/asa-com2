@@ -196,7 +196,29 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   text-align:center;padding:24px}
 #start .in{font-size:28px;font-weight:600;line-height:1.7}
 #start .in small{display:block;font-size:16px;color:var(--on-surface-variant);margin-top:14px;font-weight:400}
-#start .in small#buildStart{font-size:13px;margin-top:26px;opacity:.75}
+#start .in small#buildStart{font-size:13px;margin-top:20px;opacity:.75}
+#start{overflow:auto}
+#guide{margin:26px auto 0;max-width:640px;text-align:left;border:2px solid var(--outline);
+  border-radius:18px;padding:14px 18px 16px}
+#guide .gt{font-size:13px;font-weight:700;color:var(--primary);letter-spacing:.08em;margin-bottom:8px}
+#guide .grow{display:flex;align-items:center;gap:14px;padding:9px 0;border-top:1px solid var(--outline)}
+#guide .grow:first-of-type{border-top:none}
+#guide .gfig{flex:0 0 auto;width:104px;height:56px}
+#guide svg polyline,#guide svg circle{fill:none;stroke:var(--on-surface);stroke-width:6;
+  stroke-linecap:round;stroke-linejoin:round}
+#guide svg text{fill:var(--on-surface-variant);stroke:none;font-family:inherit}
+#guide .gtx{font-size:17px;font-weight:400;line-height:1.5;color:var(--on-surface)}
+#guide .gtx b{font-weight:700}
+#guide .gtx b.blue{color:var(--primary)}
+#guide .gtx b.amber{color:#B06000;box-shadow:inset 0 -3px 0 var(--warn)}
+#guide .gtx i{display:block;font-style:normal;font-size:13px;color:var(--on-surface-variant);margin-top:2px}
+#guide .gcells{display:flex;gap:8px;width:104px}
+#guide .gcell{position:relative;width:48px;height:56px;border:2px solid var(--outline);border-radius:8px}
+#guide .gcell svg{position:absolute;inset:8%;width:84%;height:84%}
+#guide .gcell svg polyline{stroke-width:7}
+#guide .gch{position:absolute;right:2px;bottom:0;font-size:17px;font-weight:700;line-height:1;
+  color:var(--primary);background:var(--surface);padding:0 2px;border-radius:4px}
+#guide .gch.low{color:#B06000;box-shadow:inset 0 -3px 0 var(--warn)}
 #start.off{display:none}
 #toast{position:fixed;left:50%;bottom:40px;transform:translateX(-50%);z-index:40;
   background:rgba(32,33,36,.92);color:#fff;padding:12px 22px;border-radius:24px;font-size:17px;
@@ -279,7 +301,43 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   <div id="sheetBody"></div>
 </div>
 
-<div id="start"><div class="in">がめんを さわって はじめる<small>（はじめの1回だけ。音を出すために必要です）</small><small id="buildStart"></small></div></div>
+<div id="start"><div class="in">
+  がめんを さわって はじめる<small>（はじめの1回だけ。音を出すために必要です）</small>
+
+  <div id="guide">
+    <div class="gt">つかいかた</div>
+
+    <div class="grow">
+      <svg class="gfig" viewBox="0 0 120 64" aria-hidden="true">
+        <polyline points="12,14 104,22 14,34 104,44 16,54"/>
+      </svg>
+      <div class="gtx"><b>ジグザグ</b>を かくと <b>1文字 けします</b><i>（書きかけの字も 消せます）</i></div>
+    </div>
+
+    <div class="grow">
+      <svg class="gfig" viewBox="0 0 120 64" aria-hidden="true">
+        <circle cx="60" cy="36" r="9"/>
+        <text x="60" y="18" text-anchor="middle" font-size="13">ちいさく</text>
+      </svg>
+      <div class="gtx"><b>ちいさな まる「。」</b>で <b>文が きまります</b><i>（全部を読み上げて、右のログに のこります）</i></div>
+    </div>
+
+    <div class="grow">
+      <div class="gfig gcells">
+        <div class="gcell"><svg viewBox="0 0 100 100" aria-hidden="true">
+          <polyline points="18,26 70,26 70,58 56,84 38,92"/><polyline points="46,10 38,46 24,92"/>
+        </svg><span class="gch">カ</span></div>
+        <div class="gcell"><svg viewBox="0 0 100 100" aria-hidden="true">
+          <polyline points="18,22 16,50"/><polyline points="18,22 80,22 74,56 46,88"/>
+        </svg><span class="gch low">ワ</span></div>
+      </div>
+      <div class="gtx">よみとった 文字は <b class="blue">青＝じしん あり</b> ／ <b class="amber">オレンジ＝あやしい</b>
+        <i>（黒い線は 本人が書いた筆跡。オレンジは 右の候補ボタンで 直せます）</i></div>
+    </div>
+  </div>
+
+  <small id="buildStart"></small>
+</div></div>
 <div id="toast"></div>
 
 <script>
@@ -892,7 +950,7 @@ function $(id){ return document.getElementById(id); }
 
 /* ---------- このアプリの更新日時 ----------
    リリースのたびに tools/stamp.js が下の1行を書き換える（日本時間） */
-var BUILD='2026-09-23 01:36';  /* ==BUILD== */
+var BUILD='2026-09-23 08:20';  /* ==BUILD== */
 
 function showBuild(){
   var txt='更新 '+BUILD;
@@ -902,10 +960,10 @@ function showBuild(){
 
 /* ---------- 設定 ---------- */
 var SKEY='asacom2.settings', LKEY='asacom2.log';
-var SETTINGS_VER=2;   /* 既定値を変えたら上げる。古い設定が入っている端末にも新しい既定値を届ける */
+var SETTINGS_VER=3;   /* 既定値を変えたら上げる。古い設定が入っている端末にも新しい既定値を届ける */
 var DEF={
   ver:SETTINGS_VER,
-  strokeGapMs:1000, fastCommit:true, strictness:'normal',
+  strokeGapMs:400, fastCommit:true, strictness:'normal',
   useDigits:false, digitsOnly:false, candidateMs:4000,
   zigzag:'normal', penWidth:'mid', guide:'cross', alwaysGuess:true,
   kanaFirst:true, useInk:true, learnOnFix:true,
@@ -1008,11 +1066,12 @@ function say(text, opt){
   }catch(e){}
 }
 
-/* 音声合成の解錠（必ずユーザー操作の中から呼ぶこと） */
-function primeSpeech(text){
+/* 音声合成の解錠（必ずユーザー操作の中から呼ぶこと）
+   force=true のときは間隔をあけずにやり直す */
+function primeSpeech(text, force){
   if(speechReady || !('speechSynthesis' in window)) return;
   var now=Date.now();
-  if(now-lastPrime < 1200) return;
+  if(!force && now-lastPrime < 1200) return;
   lastPrime=now;
   try{
     var ss=window.speechSynthesis;
@@ -1021,6 +1080,39 @@ function primeSpeech(text){
     if(!text) u.volume=0.02;          /* 合図だけの解錠はほとんど聞こえない音量で */
     ss.speak(u);
   }catch(e){}
+}
+
+/* 起動時の音声立ち上げ。
+   実機では「読み上げを OFF→ON する」と鳴るようになる現象があったため、
+   その手順をアプリ自身が行う。あわせて、声の一覧が遅れて届く端末のために
+   鳴り始めるまで数回やり直す。必ずユーザー操作の中から呼ぶこと。 */
+var GREETING='じゅんびが できました。かいて ください。';
+function bootSpeech(){
+  if(!('speechSynthesis' in window)) return;
+  try{
+    var ss=window.speechSynthesis;
+    ss.cancel();                       /* 詰まっている状態を一度きれいにする */
+    S.speak=false; updateToggles();    /* 読み上げ OFF */
+    S.speak=true;  updateToggles();    /* 読み上げ ON（ここまでが自動の切り替え） */
+    speechReady=false;
+    if(ss.paused) ss.resume();
+    primeSpeech(GREETING, true);       /* 操作の中での発話＝ここで解錠される */
+  }catch(e){}
+  /* 声の一覧が遅れて届く端末のために、鳴り始めるまで数回だけやり直す。
+     鳴り始めたとき／本人が書き始めたときは、その場でやめる（挨拶の繰り返しを避ける） */
+  var tries=0;
+  var timer=setInterval(function(){
+    var ss2=null;
+    try{ ss2=window.speechSynthesis; }catch(e2){}
+    if(ss2 && ss2.speaking) speechReady=true;
+    if(speechReady || tries>=3 || strokes.length || ROW.length){ clearInterval(timer); return; }
+    tries++;
+    pickVoice();                       /* 声の一覧が届いていれば選び直す */
+    try{
+      if(ss2){ if(ss2.paused) ss2.resume(); ss2.cancel(); }
+    }catch(e3){}
+    primeSpeech(GREETING, true);
+  }, 800);
 }
 function sayChar(ch){ say(READ[ch]||ch); }
 function shutUp(){ try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(e){} }
@@ -1920,8 +2012,8 @@ function boot(){
     if(started) return;
     started=true;
     st.classList.add('off');
-    /* ここはユーザー操作の中。挨拶をそのまま解錠に使う（iOSの制限） */
-    if(S.speak) primeSpeech('じゅんびが できました。かいて ください。');
+    /* ここはユーザー操作の中。読み上げを OFF→ON してから挨拶する（iOSの制限への対処） */
+    bootSpeech();
     try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){}
     applyWakeLock(); sizePad();
   }

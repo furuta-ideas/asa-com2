@@ -145,6 +145,45 @@ function check(name, cond, detail) {
     await page.close();
   }
 
+  /* --- 4. 声の一覧が遅れて届く端末：触り直さなくても、やり直して鳴る --- */
+  {
+    console.log('\n[4] 声の用意が遅れても、起動の流れの中で鳴りはじめる');
+    const page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+    await page.addInitScript(() => {
+      window.__spoken = []; window.__dropped = [];
+      let unlocked = false;
+      window.__voicesReady = false;          // 声の一覧がまだ来ていない状態
+      const api = {
+        speaking: false, pending: false, paused: false,
+        getVoices: () => window.__voicesReady ? [{ name: 'Kyoko', lang: 'ja-JP', voiceURI: 'kyoko' }] : [],
+        speak(u) {
+          const gesture = !!(navigator.userActivation && navigator.userActivation.isActive);
+          const audible = String(u.text || '').trim().length > 0 && (u.volume === undefined || u.volume > 0);
+          if (!unlocked) {
+            if (gesture && audible) unlocked = true;
+            else { window.__dropped.push(u.text); return; }
+          }
+          if (!window.__voicesReady) { window.__dropped.push(u.text); return; }  // 声が無い間は鳴らない
+          window.__spoken.push(u.text);
+          if (u.onstart) setTimeout(() => u.onstart(), 0);
+          setTimeout(() => { if (u.onend) u.onend(); }, 10);
+        },
+        cancel() {}, resume() { api.paused = false; }, onvoiceschanged: null
+      };
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: api });
+      window.SpeechSynthesisUtterance = function (t) { this.text = t; this.volume = 1; };
+      setTimeout(() => { window.__voicesReady = true; }, 1500);   // 1.5秒後に声が使えるようになる
+    });
+    await page.goto(FILE);
+    await page.click('#start');
+    await page.waitForTimeout(600);
+    check('声が無い間は鳴らない（想定どおり）', (await page.evaluate(() => window.__spoken)).length === 0);
+    await page.waitForTimeout(2600);   // やり直しの間隔（800ms×4回）を待つ
+    const spoken = await page.evaluate(() => window.__spoken);
+    check('画面に触れ直さなくても挨拶が鳴る', spoken.some(t => t.indexOf('じゅんび') >= 0), JSON.stringify(spoken));
+    await page.close();
+  }
+
   await browser.close();
   console.log(`\n${fails === 0 ? '✅ すべて合格' : '❌ ' + fails + ' 件 失敗'}\n`);
   process.exit(fails === 0 ? 0 : 1);
