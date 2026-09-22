@@ -13,12 +13,17 @@ const path = require('path');
 const vm = require('vm');
 
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const m = HTML.match(/\/\* ==RECOGNIZER-BEGIN==[\s\S]*?\/\* ==RECOGNIZER-END== \*\//);
-if (!m) { console.error('index.html から認識エンジンのブロックが見つかりません'); process.exit(1); }
+function block(name) {
+  const m = HTML.match(new RegExp('\\/\\* ==' + name + '-BEGIN==[\\s\\S]*?\\/\\* ==' + name + '-END== \\*\\/'));
+  if (!m) { console.error(`index.html に ${name} のブロックがありません`); process.exit(1); }
+  return m[0];
+}
 const sandbox = {};
 vm.createContext(sandbox);
-vm.runInContext(m[0] + '\n;globalThis.Recog = Recog;', sandbox);
-const R = sandbox.Recog;
+vm.runInContext(block('CNN') + '\n;globalThis.CNN = CNN;', sandbox);      // 画像を見るCNN
+vm.runInContext(block('CNN-MODEL'), sandbox);                             // 学習済みの重み
+vm.runInContext(block('RECOGNIZER') + '\n;globalThis.Recog = Recog;', sandbox);  // 筆画マッチング＋統合
+const R = sandbox.Recog, CNN = sandbox.CNN;
 
 /* ---------- 合成筆跡（人が書いたようなゆがみを与える） ---------- */
 let seed = 20260922;
@@ -91,7 +96,7 @@ const bad = Object.values(byChar).filter(v => v.ok / v.n < 0.85);
 if (bad.length) console.log('  正解率85%未満: ' + bad.map(b => `${b.ch}(${(b.ok / b.n * 100).toFixed(0)}%)`).join(' '));
 const cf = Object.entries(conf).sort((a, b) => b[1] - a[1]).slice(0, 10);
 if (cf.length) console.log('  取り違え上位: ' + cf.map(([k, v]) => `${k}×${v}`).join('  '));
-check('top1 が 95% 以上', top1pct >= 95, `${top1pct.toFixed(1)}%`);
+check('top1 が 97% 以上', top1pct >= 97, `${top1pct.toFixed(1)}%`);
 check('top3 が 99% 以上', top3pct >= 99, `${top3pct.toFixed(1)}%`);
 
 /* ---------- 3. 即確定の安全性 ---------- */
@@ -151,6 +156,42 @@ for (const ch of ['シ', 'ツ', 'ミ', 'サ', 'ヨ', 'ス', 'ヌ', 'ソ', 'ン',
   let hit = false;
   for (const st of ink) if (R.isZigzag([st], CELL, 'normal')) hit = true;
   check(`${ch} を書いても削除と誤判定しない`, !hit);
+}
+
+/* ---------- 5.5 CNN と、書き方のくせへの強さ ---------- */
+console.log('\n[5.5] CNN（字の形を見るモデル）');
+check('モデルが読み込まれている', CNN.ready() && CNN.classes().length === 57);
+{
+  let ok = 0;
+  for (const r of R._raw) {
+    const p = CNN.probs(r.s.map(toPts), 0.09);
+    let bi = 0;
+    for (let i = 1; i < p.length; i++) if (p[i] > p[bi]) bi = i;
+    if (CNN.classes()[bi] === r.ch) ok++;
+  }
+  check(`手本の字形をすべて言い当てる（${ok}/${R._raw.length}）`, ok === R._raw.length);
+}
+console.log('\n[5.6] 書き方のくせ（画をつなげる・切る・逆から書く）');
+{
+  const VARIANT = {
+    '画をつなげて書く': s => s.length < 2 ? s : [s.reduce((a, b) => a.concat(b))],
+    '画を途中で切る': s => { const o = []; for (const st of s) { const m = Math.floor(st.length / 2); if (st.length > 3) { o.push(st.slice(0, m + 1)); o.push(st.slice(m)); } else o.push(st); } return o; },
+    '画を逆向きに書く': s => s.map(st => st.slice().reverse()),
+    '筆順を逆にする': s => s.slice().reverse()
+  };
+  for (const [name, fn] of Object.entries(VARIANT)) {
+    let ok = 0, n = 0;
+    for (const r of R._raw) {
+      for (let t = 0; t < 3; t++) {
+        const ink = fn(synth(r.s.map(toPts), 0.7));
+        const res = R.recognize(ink, {});
+        n++;
+        if (res.cands.length && res.cands[0].ch === r.ch) ok++;
+      }
+    }
+    const pct = ok / n * 100;
+    check(`${name}：1位正解 80% 以上（${pct.toFixed(1)}%）`, pct >= 80);
+  }
 }
 
 /* ---------- 6. 数字のON/OFF ---------- */

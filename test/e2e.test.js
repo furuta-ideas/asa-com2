@@ -113,12 +113,13 @@ const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textCo
   expect('ジグザグで1文字消える', await row(page), '');
 
   // 6. 認識できない走り書き
-  /* どの字にも当てはまらない走り書き（5画）*/
-  const scribble = [];
-  for (let i = 0; i < 5; i++) {
-    const x = box.x + box.w * (0.2 + i * 0.12), y = box.y + box.h * 0.3;
-    scribble.push([{ x: x, y: y }, { x: x + 40, y: y + 120 }, { x: x - 20, y: y + 180 }]);
-  }
+  /* どの字にも当てはまらない走り書き（格子のもつれ）*/
+  const scribble = [
+    [{ x: .20, y: .20 }, { x: .80, y: .80 }],
+    [{ x: .80, y: .20 }, { x: .20, y: .80 }],
+    [{ x: .20, y: .50 }, { x: .80, y: .50 }],
+    [{ x: .50, y: .20 }, { x: .50, y: .80 }]
+  ].map(st => st.map(p => ({ x: box.x + box.w * p.x, y: box.y + box.h * p.y })));
   await page.evaluate(() => { window.__spoken.length = 0; });
   await draw(page, scribble);
   const sp = await page.evaluate(() => window.__spoken);
