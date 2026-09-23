@@ -185,10 +185,6 @@ body.noKeys #keys{display:none}
 #sheet.on{transform:none}
 #sheet header{border-bottom:1px solid var(--outline)}
 #sheetBody{flex:1;overflow-y:auto;padding:8px 20px 40px}
-#diagBox{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
-  line-height:1.5;background:var(--surface-variant);border:1px solid var(--outline);
-  border-radius:10px;padding:10px;margin-top:8px;max-height:260px;overflow:auto;
-  -webkit-user-select:text;user-select:text}
 .sec{margin-top:18px;font-size:13px;font-weight:700;color:var(--primary);letter-spacing:.06em}
 .item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--outline)}
 .item .lb{flex:1;font-size:16px}
@@ -316,7 +312,7 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   </header>
 
   <div id="soundWarn" hidden>
-    <span>音が出ていません。<b>画面をもう一度さわる</b>か、⚙ の「音が出ないときの点検」をご覧ください</span>
+    <span>音が出ていません。<b>画面をもう一度さわる</b>と鳴ることがあります（iPad の音量・消音もご確認ください）</span>
     <button id="soundWarnTest">音を出してみる</button>
     <button id="soundWarnClose" aria-label="とじる">✕</button>
   </div>
@@ -1042,7 +1038,7 @@ function $(id){ return document.getElementById(id); }
 
 /* ---------- このアプリの更新日時 ----------
    リリースのたびに tools/stamp.js が下の1行を書き換える（日本時間） */
-var BUILD='2026-09-23 09:17';  /* ==BUILD== */
+var BUILD='2026-09-23 09:21';  /* ==BUILD== */
 
 function showBuild(){
   var txt='更新 '+BUILD;
@@ -1134,7 +1130,7 @@ var READ={'ー':'ノバス','。':'マル',
    ・発話のエラー（not-allowed / audio-busy など）を必ず記録する
    ・鳴らないときは方法を変えて順に試す（下の LADDER）
    ・効いた方法を覚えて、次からはそれを使う
-   ・何が起きたかを設定の「音が出ないときの点検」で読めるようにする
+   ・何が起きたかを内部に記録しておく（不具合を追うときに使う）
    ============================================================ */
 var speechReady=false, lastPrime=0;
 var DIAG={events:[], lastError:null, worked:null};
@@ -1978,7 +1974,7 @@ var SECTIONS=[
     {k:'penWidth', l:'線の太さ', o:[['thin','細'],['mid','中'],['thick','太']]},
     {k:'guide', l:'マス目ガイド', o:[['none','なし'],['cross','十字'],['quarter','十字＋四分割']]}
   ]},
-  {t:'おぼえさせる', items:[
+  {t:'おぼえさせる', after:'teach', items:[
     {k:'useInk', l:'おぼえた字をつかう', s:'本人の書きかたを優先して読み取ります', sw:true},
     {k:'learnOnFix', l:'まちがいを直したら おぼえる', s:'候補ボタンで直すと、その筆跡を覚えます', sw:true},
     {k:'kanaFirst', l:'カタカナを 数字より優先', s:'「ア」が「7」に、「タ」が「9」になるのを減らします', sw:true}
@@ -2008,6 +2004,40 @@ var SECTIONS=[
     {k:'gearGuard', l:'設定ボタンを長押しで保護', s:'ONにすると1秒長押ししないと開きません', sw:true}
   ]}
 ];
+/* 設定：手書きを おぼえさせる（「覚えさせる」セクションの下に出す） */
+function appendTeach(body){
+  /* おぼえさせる：文字えらび */
+  var th=document.createElement('div'); th.className='sec'; th.textContent='手書きを おぼえさせる';
+  body.appendChild(th);
+  var note=document.createElement('div'); note.className='item';
+  note.innerHTML='<div class="lb">よく まちがえる字を えらぶと、その字を '+TEACH_TIMES+'回 書いてもらいます'
+    +'<small>いま おぼえている字：'+inkCount()+'個</small></div>';
+  body.appendChild(note);
+  var pick=document.createElement('div'); pick.id='teachPick';
+  var CHARS=(typeof CNN!=='undefined' && CNN.ready()) ? CNN.classes() : [];
+  CHARS.forEach(function(ch){
+    var b=document.createElement('button');
+    b.textContent=ch;
+    if(INK[ch] && INK[ch].length) b.className='has';
+    b.addEventListener('click', function(){ startTeach(ch); });
+    pick.appendChild(b);
+  });
+  body.appendChild(pick);
+  var be=document.createElement('button'); be.className='act'; be.textContent='おぼえた字を 書き出す';
+  be.addEventListener('click', exportInk);
+  body.appendChild(be);
+  var bi=document.createElement('button'); bi.className='act'; bi.textContent='おぼえた字を 読み込む';
+  bi.addEventListener('click', importInk);
+  body.appendChild(bi);
+
+  var bc=document.createElement('button'); bc.className='act danger'; bc.textContent='おぼえた字を 消す';
+  bc.addEventListener('click', function(){
+    if(!confirm('おぼえた字をすべて消します。よろしいですか？')) return;
+    INK={}; saveInk(); buildSheet(); toast('おぼえた字を消しました');
+  });
+  body.appendChild(bc);
+}
+
 function buildSheet(){
   var body=$('sheetBody'); body.innerHTML='';
   SECTIONS.forEach(function(sec){
@@ -2050,72 +2080,8 @@ function buildSheet(){
       }
       body.appendChild(row);
     });
+    if(sec.after==='teach') appendTeach(body);   /* 「覚えさせる」の3項目の下に置く */
   });
-  /* おぼえさせる：文字えらび */
-  var th=document.createElement('div'); th.className='sec'; th.textContent='手書きを おぼえさせる';
-  body.appendChild(th);
-  var note=document.createElement('div'); note.className='item';
-  note.innerHTML='<div class="lb">よく まちがえる字を えらぶと、その字を '+TEACH_TIMES+'回 書いてもらいます'
-    +'<small>いま おぼえている字：'+inkCount()+'個</small></div>';
-  body.appendChild(note);
-  var pick=document.createElement('div'); pick.id='teachPick';
-  var CHARS=(typeof CNN!=='undefined' && CNN.ready()) ? CNN.classes() : [];
-  CHARS.forEach(function(ch){
-    var b=document.createElement('button');
-    b.textContent=ch;
-    if(INK[ch] && INK[ch].length) b.className='has';
-    b.addEventListener('click', function(){ startTeach(ch); });
-    pick.appendChild(b);
-  });
-  body.appendChild(pick);
-  var be=document.createElement('button'); be.className='act'; be.textContent='おぼえた字を 書き出す';
-  be.addEventListener('click', exportInk);
-  body.appendChild(be);
-  var bi=document.createElement('button'); bi.className='act'; bi.textContent='おぼえた字を 読み込む';
-  bi.addEventListener('click', importInk);
-  body.appendChild(bi);
-
-  var bc=document.createElement('button'); bc.className='act danger'; bc.textContent='おぼえた字を 消す';
-  bc.addEventListener('click', function(){
-    if(!confirm('おぼえた字をすべて消します。よろしいですか？')) return;
-    INK={}; saveInk(); buildSheet(); toast('おぼえた字を消しました');
-  });
-  body.appendChild(bc);
-
-  /* 音が出ないときの点検 */
-  var sh=document.createElement('div'); sh.className='sec'; sh.textContent='音が出ないときの点検';
-  body.appendChild(sh);
-  var diagBox=document.createElement('div');
-  diagBox.id='diagBox'; diagBox.textContent=diagText();
-  body.appendChild(diagBox);
-  var wrap=document.createElement('div'); wrap.id='diagBtns';
-  LADDER.forEach(function(way){
-    var b=document.createElement('button');
-    b.className='act'; b.style.marginTop='6px';
-    b.textContent='テスト発話：'+way.name;
-    b.addEventListener('click', function(){
-      speechReady=false;
-      speakWith('テスト。あいうえお。', way, true);
-      setTimeout(function(){ diagBox.textContent=diagText(); }, 900);
-    });
-    wrap.appendChild(b);
-  });
-  var bt=document.createElement('button'); bt.className='act'; bt.style.marginTop='6px';
-  bt.textContent='効果音を鳴らしてみる';
-  bt.addEventListener('click', function(){ SND.ok(); setTimeout(function(){ diagBox.textContent=diagText(); }, 600); });
-  wrap.appendChild(bt);
-  var bcp=document.createElement('button'); bcp.className='act'; bcp.style.marginTop='6px';
-  bcp.textContent='点検の結果をコピー';
-  bcp.addEventListener('click', function(){
-    var t=diagText();
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(t).then(function(){ toast('コピーしました'); },
-                                            function(){ selectDiag(); });
-    } else selectDiag();
-  });
-  wrap.appendChild(bcp);
-  body.appendChild(wrap);
-
   var b1=document.createElement('button'); b1.className='act'; b1.textContent='設定を初期値にもどす';
   b1.addEventListener('click', function(){
     if(!confirm('設定を初期値にもどします。よろしいですか？（ログと おぼえた字は消えません）')) return;
@@ -2143,7 +2109,7 @@ function renderVoiceOptions(){
     sel.appendChild(op);
   });
 }
-/* 点検の内容（介助者がそのまま読み上げ／コピーできる文章） */
+/* 音まわりの状態をまとめた文章（画面には出さない。不具合を追うときに使う） */
 function diagText(){
   var ss=null;
   try{ ss=window.speechSynthesis; }catch(e){}
@@ -2151,7 +2117,7 @@ function diagText(){
   try{ vs=(ss && ss.getVoices ? ss.getVoices() : [])||[]; }catch(e2){}
   var ja=vs.filter(function(v){ return /^ja/i.test(v.lang||''); });
   var lines=[];
-  lines.push('Asa-Com2 音の点検  更新 '+BUILD);
+  lines.push('Asa-Com2 音の状態  更新 '+BUILD);
   lines.push('音声合成に対応：'+(('speechSynthesis' in window)?'はい':'いいえ'));
   lines.push('声の数：'+vs.length+'（日本語 '+ja.length+'）');
   lines.push('日本語の声：'+(ja.map(function(v){return v.name;}).join(' / ')||'なし'));
@@ -2168,15 +2134,6 @@ function diagText(){
     lines.push('  '+hh+':'+mm+':'+sc+'  '+e.kind+'  '+e.detail);
   }
   return lines.join('\n');
-}
-function selectDiag(){
-  var el=document.getElementById('diagBox');
-  if(!el) return;
-  try{
-    var r=document.createRange(); r.selectNodeContents(el);
-    var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    toast('選択しました。長押しで コピー できます');
-  }catch(e){}
 }
 $('soundWarnTest').addEventListener('click', function(){
   speechReady=false;
