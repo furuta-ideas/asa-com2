@@ -214,8 +214,41 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
 #start .in small{display:block;font-size:16px;color:var(--on-surface-variant);margin-top:14px;font-weight:400}
 #start .in small#buildStart{font-size:13px;margin-top:20px;opacity:.75}
 #start{overflow:auto}
-#guide{margin:26px auto 0;max-width:640px;text-align:left;border:2px solid var(--outline);
-  border-radius:18px;padding:14px 18px 16px}
+#guide{margin:22px auto 0;max-width:660px;text-align:left;border:2px solid var(--outline);
+  border-radius:18px;padding:12px 18px 14px}
+#guide .grow.lead{padding-top:4px}
+#guide .grow.lead .gtx{font-size:18px;color:var(--primary)}
+#guide svg text{font-family:inherit}
+#guide svg text.gmuted{fill:var(--on-surface-variant);stroke:none;font-weight:400}
+#guide svg .gslash{stroke:var(--danger);stroke-width:3;stroke-linecap:round}
+/* 画面がとても低いとき（iPhone 横など）は、さらに詰めて全部読めるようにする */
+@media (max-height:480px){
+  #start{align-items:start;padding:12px 16px}
+  #start .in{font-size:19px}
+  #start .in small{margin-top:6px;font-size:13px}
+  #guide{margin-top:10px;padding:6px 12px 8px;max-width:760px}
+  #guide .gt{margin-bottom:4px}
+  #guide .grow{padding:4px 0;gap:10px}
+  #guide .gfig{width:66px;height:36px}
+  #guide .gcells{width:66px;gap:5px}
+  #guide .gcell{width:30px;height:36px}
+  #guide .gch{font-size:12px}
+  #guide .gtx{font-size:13.5px;line-height:1.35}
+  #guide .gtx i{font-size:11px;margin-top:1px}
+  #guide .grow.lead .gtx{font-size:15px}
+  #start .in small#buildStart{margin-top:8px;font-size:11px}
+}
+@media (max-height:700px){
+  #guide{margin-top:14px;padding:8px 14px 10px}
+  #guide .grow{padding:5px 0}
+  #guide .gfig{width:84px;height:44px}
+  #guide .gtx{font-size:15px;line-height:1.4}
+  #guide .gtx i{font-size:12px}
+  #guide .gcells{width:84px}
+  #guide .gcell{width:38px;height:44px}
+  #start .in{font-size:22px}
+  #start .in small{margin-top:8px;font-size:14px}
+}
 #guide .gt{font-size:13px;font-weight:700;color:var(--primary);letter-spacing:.08em;margin-bottom:8px}
 #guide .grow{display:flex;align-items:center;gap:14px;padding:9px 0;border-top:1px solid var(--outline)}
 #guide .grow:first-of-type{border-top:none}
@@ -353,19 +386,32 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   <div id="guide">
     <div class="gt">つかいかた</div>
 
-    <div class="grow">
-      <svg class="gfig" viewBox="0 0 120 64" aria-hidden="true">
-        <polyline points="12,14 104,22 14,34 104,44 16,54"/>
-      </svg>
-      <div class="gtx"><b>ジグザグ</b>を かくと <b>1文字 けします</b><i>（書きかけの字も 消せます）</i></div>
+    <div class="grow lead">
+      <div class="gtx"><b>最初に、使い方を説明してあげてください。</b></div>
     </div>
 
     <div class="grow">
       <svg class="gfig" viewBox="0 0 120 64" aria-hidden="true">
-        <circle cx="60" cy="36" r="9"/>
-        <text x="60" y="18" text-anchor="middle" font-size="13">ちいさく</text>
+        <text x="60" y="34" text-anchor="middle" font-size="26" font-weight="700">アイウ</text>
+        <text x="60" y="56" text-anchor="middle" font-size="16" class="gmuted">1 2 3</text>
+        <line x1="34" y1="50" x2="86" y2="50" class="gslash"/>
       </svg>
-      <div class="gtx"><b>ちいさな まる「。」</b>で <b>文が きまります</b><i>（全部を読み上げて、右のログに のこります）</i></div>
+      <div class="gtx"><b>カタカナのみを認識します。</b><i>（設定 ⚙ で数字認識も追加できます）</i></div>
+    </div>
+
+    <div class="grow">
+      <svg class="gfig" viewBox="0 0 120 64" aria-hidden="true">
+        <polyline points="12,14 104,22 14,34 104,44 16,54"/>
+      </svg>
+      <div class="gtx"><b>間違えたらジグザグに書くと1文字消せます。</b></div>
+    </div>
+
+    <div class="grow">
+      <svg class="gfig" viewBox="0 0 120 64" aria-hidden="true">
+        <text x="60" y="26" text-anchor="middle" font-size="13" class="gmuted">ちいさく</text>
+        <circle cx="60" cy="42" r="9"/>
+      </svg>
+      <div class="gtx"><b>文章の最後に句読点の【。】を小さく書くと一文を読み上げます。</b></div>
     </div>
 
     <div class="grow">
@@ -377,8 +423,8 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
           <polyline points="18,22 16,50"/><polyline points="18,22 80,22 74,56 46,88"/>
         </svg><span class="gch low">ワ</span></div>
       </div>
-      <div class="gtx">よみとった 文字は <b class="blue">青＝じしん あり</b> ／ <b class="amber">オレンジ＝あやしい</b>
-        <i>（黒い線は 本人が書いた筆跡。オレンジは 右の候補ボタンで 直せます）</i></div>
+      <div class="gtx"><b>1文字ずつ発音しますが、手書きの文字も残っていますので、間違えていても気にせずにどんどん書いてください。</b>
+        <i><b class="blue">青＝自信あり</b> ／ <b class="amber">オレンジ＝自信なし</b>（黒い線は書いた筆跡そのものです）</i></div>
     </div>
   </div>
 
@@ -996,7 +1042,7 @@ function $(id){ return document.getElementById(id); }
 
 /* ---------- このアプリの更新日時 ----------
    リリースのたびに tools/stamp.js が下の1行を書き換える（日本時間） */
-var BUILD='2026-09-23 09:05';  /* ==BUILD== */
+var BUILD='2026-09-23 09:17';  /* ==BUILD== */
 
 function showBuild(){
   var txt='更新 '+BUILD;
