@@ -7,6 +7,7 @@
      ・起動画面をタッチしただけで挨拶が鳴ること
      ・そのあと（タイマー経由で確定する）文字の発音も鳴ること
      ・解錠に失敗しても、次に画面へ触れたときに立て直せること
+     ・指を「離した時点」でしか解錠しない端末（実機の条件）でも鳴ること
 
    を確認する。実機で「発話ON/OFFを切り替えるまで声が出ない」不具合の再発防止。
 
@@ -263,6 +264,56 @@ function check(name, cond, detail) {
     });
     check('エラーの内容を記録している（not-allowed）',
       !!diag && diag.indexOf('not-allowed') >= 0, diag ? diag.split('\n').slice(0, 3).join(' / ') : 'なし');
+    await page.close();
+  }
+
+  /* --- 7. iPadOS の本当の決まり：指を「離した時点」でしか解錠されない --- */
+  {
+    console.log('\n[7] 指を離した時点でしか解錠しない端末（実機で判明した条件）');
+    const page = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+    await page.addInitScript(() => {
+      window.__spoken = []; window.__dropped = [];
+      let unlocked = false;
+      /* いま処理中のイベント種別を覚えておく */
+      window.__evt = null;
+      for (const type of ['pointerdown', 'pointerup', 'click', 'touchend']) {
+        document.addEventListener(type, () => {
+          window.__evt = type;
+          setTimeout(() => { window.__evt = null; }, 0);   // その処理の間だけ有効
+        }, true);
+      }
+      const api = {
+        speaking: false, pending: false, paused: false,
+        getVoices: () => [{ name: 'Kyoko', lang: 'ja-JP', voiceURI: 'kyoko' }],
+        speak(u) {
+          if (!unlocked) {
+            /* pointerdown では解錠されない。click / pointerup / touchend でのみ解錠 */
+            if (window.__evt === 'click' || window.__evt === 'pointerup' || window.__evt === 'touchend') unlocked = true;
+            else { window.__dropped.push((window.__evt || 'なし') + ':' + u.text); return; }
+          }
+          window.__spoken.push(u.text);
+          if (u.onstart) setTimeout(() => u.onstart(), 0);
+          setTimeout(() => { if (u.onend) u.onend(); }, 10);
+        },
+        cancel() {}, resume() { api.paused = false; }, onvoiceschanged: null
+      };
+      Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: api });
+      window.SpeechSynthesisUtterance = function (t) { this.text = t; this.volume = 1; };
+    });
+    await page.goto(FILE);
+    await page.click('#start');          // 押して離す＝実機と同じ操作
+    await page.waitForTimeout(500);
+    const spoken = await page.evaluate(() => window.__spoken);
+    check('起動画面を押して離しただけで挨拶が鳴る',
+      spoken.some(t => t.indexOf('じゅんび') >= 0),
+      `鳴った=${JSON.stringify(spoken)} 捨てられた=${JSON.stringify(await page.evaluate(() => window.__dropped))}`);
+    check('「音が出ていません」の帯は出ない', await page.$eval('#soundWarn', el => el.hidden));
+
+    const box = await page.$eval('#pad', el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+    const S = Math.min(box.w, box.h) * 0.5;
+    await draw(page, place(KA, box, S, box.w * 0.2, box.h * 0.15));
+    check('そのあと書いた文字も発音される',
+      (await page.evaluate(() => window.__spoken)).indexOf('カ') >= 0);
     await page.close();
   }
 

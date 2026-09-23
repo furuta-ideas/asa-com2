@@ -63,8 +63,11 @@ header .sp{flex:1}
 #gear:active{background:var(--surface-variant)}
 #gear svg{width:26px;height:26px;fill:var(--on-surface-variant)}
 
-#soundWarn{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:10px var(--edge);
-  background:#FEF7E0;color:#7A4E00;border-bottom:1px solid #F9AB00;font-size:15px}
+#soundWarn{position:fixed;left:0;right:0;top:56px;z-index:15;
+  display:flex;align-items:center;gap:12px;padding:10px var(--edge);
+  background:#FEF7E0;color:#7A4E00;border-bottom:1px solid #F9AB00;font-size:15px;
+  box-shadow:var(--shadow-1)}
+@media (max-height:560px){ #soundWarn{top:48px;padding:6px var(--edge);font-size:13px} }
 #soundWarn[hidden]{display:none}
 #soundWarn span{flex:1}
 #soundWarn button{border:2px solid #7A4E00;border-radius:18px;height:36px;padding:0 14px;
@@ -205,7 +208,8 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
 
 /* ---------- 起動オーバーレイ・トースト ---------- */
 #start{position:fixed;inset:0;z-index:30;background:var(--surface);display:grid;place-items:center;
-  text-align:center;padding:24px}
+  text-align:center;padding:24px;border:none;width:100%;font:inherit;color:inherit;
+  -webkit-appearance:none;appearance:none}
 #start .in{font-size:28px;font-weight:600;line-height:1.7}
 #start .in small{display:block;font-size:16px;color:var(--on-surface-variant);margin-top:14px;font-weight:400}
 #start .in small#buildStart{font-size:13px;margin-top:20px;opacity:.75}
@@ -343,7 +347,7 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   <div id="sheetBody"></div>
 </div>
 
-<div id="start"><div class="in">
+<button id="start" type="button"><div class="in">
   がめんを さわって はじめる<small>（はじめの1回だけ。音を出すために必要です）</small>
 
   <div id="guide">
@@ -379,7 +383,7 @@ select{font-family:inherit;font-size:16px;padding:8px 10px;border-radius:10px;
   </div>
 
   <small id="buildStart"></small>
-</div></div>
+</div></button>
 <div id="toast"></div>
 
 <script>
@@ -992,7 +996,7 @@ function $(id){ return document.getElementById(id); }
 
 /* ---------- このアプリの更新日時 ----------
    リリースのたびに tools/stamp.js が下の1行を書き換える（日本時間） */
-var BUILD='2026-09-23 08:51';  /* ==BUILD== */
+var BUILD='2026-09-23 09:05';  /* ==BUILD== */
 
 function showBuild(){
   var txt='更新 '+BUILD;
@@ -1352,7 +1356,9 @@ var cur=null, activeId=null;
 var gapTimer=null, candTimer=null, fadeReq=null;
 var lastCommit=null; /* {at,instant} */
 var lastHandaku=null;/* {at,index} 半濁点に変換した直後の情報 */
-var avgSize=0;       /* 本人の字の大きさ（px・指数移動平均） */
+var avgFrac=0;       /* 本人の字の大きさ（書く面の短辺に対する比・指数移動平均）
+                        画面の回転や表示の変化でキャンバスの大きさが変わってもずれないように、
+                        px ではなく比で覚える */
 var started=false;
 
 var pad=$('pad'), padWrap=$('padWrap'), ctx=pad.getContext('2d');
@@ -1422,10 +1428,7 @@ pad.addEventListener('pointerdown', function(e){
   e.preventDefault();
   activeId=e.pointerId;
   try{ pad.setPointerCapture(activeId); }catch(err){}
-  if(!speechReady && S.speak){                 /* ここもユーザー操作の中 */
-    var w=wayOf(S.speechWay);
-    primeSpeech(null, false, w);
-  }
+  /* 解錠は「指を離した時点」で行う（pointerdown では iOS が受け付けない） */
   if(gapTimer){ clearTimeout(gapTimer); gapTimer=null; }
   if(fadeReq){ cancelAnimationFrame(fadeReq); fadeReq=null; strokes=[]; }
   /* 即確定の直後なら、取り消せるよう筆跡を控えておく（判断は書き終わりに行う） */
@@ -1452,6 +1455,8 @@ pad.addEventListener('pointermove', function(e){
 pad.addEventListener('pointerup', function(e){
   if(e.pointerId!==activeId) return;
   activeId=null; cur=null;
+  /* ここは「指を離した時点」＝音声を解錠できる場面 */
+  if(!speechReady && S.speak) primeSpeech(null, false, wayOf(S.speechWay));
   onStrokeEnd();
 });
 pad.addEventListener('pointercancel', function(e){
@@ -1480,7 +1485,7 @@ function onStrokeEnd(){
   /* ② 小さく書かれた記号（濁点・半濁点・句点）
      2画そろった濁点はすぐ確定、点ひとつは「濁点の1画目」「ン・シの点」の
      可能性があるので、少し待ってから決める（DOT_WAIT） */
-  var mark=Recog.markOf(strokes, cell, avgSize);
+  var mark=Recog.markOf(strokes, cell, avgFrac*cell);
   if(mark==='daku' && lastCh && DAKU[lastCh]){
     ghost=null; clearInk(); applyDaku(); return;
   }
@@ -1524,7 +1529,7 @@ function resolvePending(){
   if(!strokes.length) return;
   var cell=Math.min(padW,padH);
   var lastCh=ROW.length? ROW[ROW.length-1].ch : null;
-  var mark=Recog.markOf(strokes, cell, avgSize);
+  var mark=Recog.markOf(strokes, cell, avgFrac*cell);
   if(mark==='daku' && lastCh && DAKU[lastCh]){ ghost=null; clearInk(); applyDaku(); return; }
   if(mark==='dot'){ handleDot(); return; }
   var r2=Recog.recognize(strokes, {useDigits:S.useDigits, digitsOnly:S.digitsOnly, kanaFirst:S.kanaFirst, penRatio:penRatio(strokes), ink:inkBonus(strokes)});
@@ -1583,8 +1588,11 @@ function commitChar(res, instant){
     raw:strokes.map(function(s){ return s.map(function(p){ return {x:p.x,y:p.y}; }); })
   });
   /* 本人の字の大きさを覚える（記号判定のものさしにする） */
-  var sz=strokesSize(strokes);
-  if(sz>0) avgSize = avgSize? (avgSize*0.7+sz*0.3) : sz;
+  var cell0=Math.min(padW,padH), sz=strokesSize(strokes);
+  if(sz>0 && cell0>0){
+    var f=sz/cell0;
+    avgFrac = avgFrac ? (avgFrac*0.7+f*0.3) : f;
+  }
   renderRow(true);
   sayChar(best.ch);
   if(low) SND.unsure(); else SND.ok();
@@ -2183,7 +2191,10 @@ function applySettings(){
 
 /* テスト用の窓口（自動テストから中の値を確かめるため。通常の動作には影響しない） */
 window.__asacom2={ inkBonus:inkBonus, ink:function(){ return INK; }, settings:function(){ return S; },
-                   diag:function(){ return diagText(); } };
+                   diag:function(){ return diagText(); },
+                   state:function(){ return {avgFrac:avgFrac, avgSize:avgFrac*Math.min(padW,padH), padW:padW, padH:padH,
+                                             strokes:strokes.length, row:ROW.map(function(r){return r.ch;}),
+                                             speechReady:speechReady}; } };
 
 /* ---------- 起動 ---------- */
 function boot(){
@@ -2199,10 +2210,14 @@ function boot(){
     /* ここでは AudioContext を作らない（効果音が音声合成を黙らせることがあるため。
        効果音は最初に必要になった時点で用意し、鳴り終えたら止める） */
     applyWakeLock(); sizePad();
-    setTimeout(function(){ if(!speechReady && S.speak) showSoundWarn(); }, 5000);
+    /* 立ち上げがうまくいけば帯は出ない。どの方法でも鳴らなかったときだけ出す */
+    setTimeout(function(){ if(!speechReady && S.speak) showSoundWarn(); }, 9000);
   }
-  st.addEventListener('pointerdown', go);
+  /* iPadOS は「指を触れた瞬間（pointerdown）」では音声合成を解錠しない。
+     指を離した時点＝click／touchend でのみ解錠されるため、そこで立ち上げる。
+     （実機で「🔊トグル」「音を出してみる」＝どちらもボタンのクリックだけが効いた） */
   st.addEventListener('click', go);
+  st.addEventListener('touchend', function(e){ e.preventDefault(); go(); }, {passive:false});
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState!=='visible') return;
     applyWakeLock();
