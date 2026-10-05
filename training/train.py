@@ -2,7 +2,7 @@
    小さなCNN（BNは書き出し時に畳み込みへ畳み込む）→ int8量子化 → JSONで出力。
    アプリ側は外部ライブラリ無しでこの重みを読んで推論する。
 """
-import json, math, time
+import json, math, os, time
 import numpy as np
 import torch
 import torch.nn as nn
@@ -33,15 +33,15 @@ class Net(nn.Module):
         super().__init__()
         self.c1 = nn.Conv2d(1, 16, 3, padding=1);  self.b1 = nn.BatchNorm2d(16)
         self.c2 = nn.Conv2d(16, 32, 3, padding=1); self.b2 = nn.BatchNorm2d(32)
-        self.c3 = nn.Conv2d(32, 48, 3, padding=1); self.b3 = nn.BatchNorm2d(48)
-        self.c4 = nn.Conv2d(48, 64, 3, padding=1); self.b4 = nn.BatchNorm2d(64)
-        self.fc = nn.Linear(64, nc)
+        self.c3 = nn.Conv2d(32, 64, 3, padding=1); self.b3 = nn.BatchNorm2d(64)
+        self.c4 = nn.Conv2d(64, 96, 3, padding=1); self.b4 = nn.BatchNorm2d(96)
+        self.fc = nn.Linear(96, nc)
 
     def forward(self, x):
         x = F.max_pool2d(F.relu(self.b1(self.c1(x))), 2)   # 48→24
         x = F.max_pool2d(F.relu(self.b2(self.c2(x))), 2)   # 24→12
         x = F.max_pool2d(F.relu(self.b3(self.c3(x))), 2)   # 12→6
-        x = F.relu(self.b4(self.c4(x)))                    # 6x6x64
+        x = F.relu(self.b4(self.c4(x)))                    # 6x6x96
         x = x.mean(dim=(2, 3))                             # global average pooling
         return self.fc(x)
 
@@ -59,7 +59,7 @@ def evaluate(model, X, Y, bs=512):
     return ok / len(X), top3 / len(X)
 
 
-def train(epochs=18, bs=256, lr=3e-3):
+def train(epochs=int(os.environ.get('EPOCHS', 20)), bs=256, lr=3e-3):
     model = Net(NC)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(

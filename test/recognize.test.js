@@ -56,6 +56,11 @@ function synth(strokes, sev) {
   });
 }
 
+/* ひらがなとカタカナで形がほぼ同じ組。指で書くと見分けがつかないので、
+   どちらに寄っても「正解」として数える（どちらを採るかは [6.5] で確かめる）。 */
+const TWIN = { 'ヘ': 'へ', 'へ': 'ヘ', 'リ': 'り', 'り': 'リ' };
+const sameCh = (a, b) => a === b || TWIN[a] === b;
+
 const TRIALS = parseInt(process.argv[2] || '40', 10);
 const SEV = parseFloat(process.argv[3] || '1.0');
 let fails = 0;
@@ -69,12 +74,12 @@ console.log('\n[1] すべてのテンプレートが自分自身を1位で認識
 let selfNg = [];
 for (const r of R._raw) {
   const res = R.recognize(r.s.map(toPts), {});
-  if (!res.cands.length || res.cands[0].ch !== r.ch) selfNg.push(`${r.ch}→${res.cands[0] ? res.cands[0].ch : '?'}`);
+  if (!res.cands.length || !sameCh(res.cands[0].ch, r.ch)) selfNg.push(`${r.ch}→${res.cands[0] ? res.cands[0].ch : '?'}`);
 }
 check(`自己一致 ${R._raw.length} 件`, selfNg.length === 0, selfNg.join(' '));
 
 /* ---------- 2. ゆがみ耐性 ---------- */
-console.log(`\n[2] ゆがみ耐性（ゆがみ ${SEV} / 1字 ${TRIALS} 回）`);
+console.log(`\n[2] ゆがみ耐性（カタカナ・ひらがな・数字すべて／ゆがみ ${SEV} / 1字 ${TRIALS} 回）`);
 const byChar = {}, conf = {};
 let ok = 0, top3 = 0, tot = 0;
 for (const r of R._raw) {
@@ -82,12 +87,12 @@ for (const r of R._raw) {
     const res = R.recognize(synth(r.s.map(toPts), SEV), {});
     const got = res.cands.length ? res.cands[0].ch : '?';
     tot++;
-    if (got === r.ch) ok++;
-    if (res.cands.some(c => c.ch === r.ch)) top3++;
+    if (sameCh(got, r.ch)) ok++;
+    if (res.cands.some(c => sameCh(c.ch, r.ch))) top3++;
     const key = r.ch + '#' + r.s.length;
     byChar[key] = byChar[key] || { ch: r.ch, n: 0, ok: 0 };
-    byChar[key].n++; if (got === r.ch) byChar[key].ok++;
-    if (got !== r.ch) conf[r.ch + '→' + got] = (conf[r.ch + '→' + got] || 0) + 1;
+    byChar[key].n++; if (sameCh(got, r.ch)) byChar[key].ok++;
+    if (!sameCh(got, r.ch)) conf[r.ch + '→' + got] = (conf[r.ch + '→' + got] || 0) + 1;
   }
 }
 const top1pct = ok / tot * 100, top3pct = top3 / tot * 100;
@@ -109,7 +114,13 @@ for (const ch of ['メ', 'タ', 'ナ', 'ハ', 'ホ', 'ア', 'ク', 'ヌ']) {
 {
   const raw = R._raw.find(r => r.ch === 'ヘ');
   const res = R.recognize(synth(raw.s.map(toPts), 0.6), {});
-  check('ヘ（1画で完結）は即確定できる', res.continuable === false && res.cands[0].ch === 'ヘ');
+  check('ヘ／へ（1画で完結）は即確定できる',
+    res.continuable === false && sameCh(res.cands[0].ch, 'ヘ'), res.cands[0] && res.cands[0].ch);
+}
+for (const ch of ['あ', 'き', 'な', 'ほ', 'は', 'ま']) {
+  const raw = R._raw.find(r => r.ch === ch);
+  const res = R.recognize(synth([raw.s[0]].map(toPts), 0.6), {});
+  check(`${ch} の1画目は「書き足しの見込みあり」`, res.continuable === true);
 }
 
 /* ---------- 4. 小さな記号（濁点・半濁点・句点） ---------- */
@@ -160,14 +171,15 @@ for (const ch of ['シ', 'ツ', 'ミ', 'サ', 'ヨ', 'ス', 'ヌ', 'ソ', 'ン',
 
 /* ---------- 5.5 CNN と、書き方のくせへの強さ ---------- */
 console.log('\n[5.5] CNN（字の形を見るモデル）');
-check('モデルが読み込まれている', CNN.ready() && CNN.classes().length === 57);
+check('モデルが読み込まれている（103字）', CNN.ready() && CNN.classes().length === 103,
+    CNN.ready() ? CNN.classes().length + '字' : '読み込めていない');
 {
   let ok = 0;
   for (const r of R._raw) {
     const p = CNN.probs(r.s.map(toPts), 0.09);
     let bi = 0;
     for (let i = 1; i < p.length; i++) if (p[i] > p[bi]) bi = i;
-    if (CNN.classes()[bi] === r.ch) ok++;
+    if (sameCh(CNN.classes()[bi], r.ch)) ok++;
   }
   check(`手本の字形をすべて言い当てる（${ok}/${R._raw.length}）`, ok === R._raw.length);
 }
@@ -186,7 +198,7 @@ console.log('\n[5.6] 書き方のくせ（画をつなげる・切る・逆か�
         const ink = fn(synth(r.s.map(toPts), 0.7));
         const res = R.recognize(ink, {});
         n++;
-        if (res.cands.length && res.cands[0].ch === r.ch) ok++;
+        if (res.cands.length && sameCh(res.cands[0].ch, r.ch)) ok++;
       }
     }
     const pct = ok / n * 100;
@@ -203,6 +215,62 @@ console.log('\n[6] 数字の設定');
   const ka = R._raw.find(r => r.ch === 'カ');
   const only = R.recognize(ka.s.map(toPts), { digitsOnly: true });
   check('「数字だけモード」でカタカナが候補に出ない', only.cands.every(c => /[0-9]/.test(c.ch)));
+}
+
+/* ---------- 6.5 読み取る文字の種類（カタカナ／ひらがな／両方） ---------- */
+console.log('\n[6.5] 読み取る文字の種類');
+{
+  const isHira = ch => R.kindOf(ch) === 'hira';
+  const isKata = ch => R.kindOf(ch) === 'kana';
+  const a = R._raw.find(r => r.ch === 'あ'), ka = R._raw.find(r => r.ch === 'カ');
+
+  check('「カタカナだけ」でひらがなが候補に出ない',
+    R.recognize(a.s.map(toPts), { kanaMode: 'kata' }).cands.every(c => !isHira(c.ch)));
+  check('「ひらがなだけ」でカタカナが候補に出ない',
+    R.recognize(ka.s.map(toPts), { kanaMode: 'hira' }).cands.every(c => !isKata(c.ch)));
+  check('「カタカナだけ」でも必ず何かの候補を返す',
+    R.recognize(a.s.map(toPts), { kanaMode: 'kata' }).cands.length > 0);
+
+  /* 既定（両方）で、それぞれの字がその字として読まれる */
+  let okH = 0, okK = 0, nH = 0, nK = 0;
+  for (const r of R._raw) {
+    if (R.kindOf(r.ch) === 'mark' || R.kindOf(r.ch) === 'digit') continue;
+    for (let t = 0; t < 8; t++) {
+      const got = R.recognize(synth(r.s.map(toPts), 0.7), { kanaMode: 'both' }).cands[0];
+      const hit = got && sameCh(got.ch, r.ch);
+      if (isHira(r.ch)) { nH++; if (hit) okH++; } else { nK++; if (hit) okK++; }
+    }
+  }
+  const pH = okH / nH * 100, pK = okK / nK * 100;
+  console.log(`  両方ONのとき  ひらがな ${pH.toFixed(1)}%（${nH}件）／ カタカナ ${pK.toFixed(1)}%（${nK}件）`);
+  check('両方ONでも ひらがなの1位正解が 90% 以上', pH >= 90, `${pH.toFixed(1)}%`);
+  check('両方ONでも カタカナの1位正解が 90% 以上', pK >= 90, `${pK.toFixed(1)}%`);
+
+  /* 形がほぼ同じ組（ヘ／へ）。手本どおりならモデルが見分けられる */
+  const heK = R._raw.find(r => r.ch === 'ヘ'), heH = R._raw.find(r => r.ch === 'へ');
+  check('両方ONでも「ヘ」の手本は「ヘ」になる',
+    R.recognize(heK.s.map(toPts), { kanaMode: 'both' }).cands[0].ch === 'ヘ',
+    R.recognize(heK.s.map(toPts), { kanaMode: 'both' }).cands[0].ch);
+  check('両方ONでも「へ」の手本は「へ」になる',
+    R.recognize(heH.s.map(toPts), { kanaMode: 'both' }).cands[0].ch === 'へ',
+    R.recognize(heH.s.map(toPts), { kanaMode: 'both' }).cands[0].ch);
+  check('「カタカナだけ」なら「へ」の筆跡も「ヘ」になる',
+    R.recognize(heH.s.map(toPts), { kanaMode: 'kata' }).cands[0].ch === 'ヘ');
+  check('「ひらがなだけ」なら「ヘ」の筆跡も「へ」になる',
+    R.recognize(heK.s.map(toPts), { kanaMode: 'hira' }).cands[0].ch === 'へ');
+
+  /* 見分けがつかないほど僅差になったときは、ひらがな側を採る（TWIN_MARGIN の動き） */
+  let tie = 0, tieHira = 0;
+  for (const raw of [heK, heH]) {
+    for (let t = 0; t < 60; t++) {
+      const c = R.recognize(synth(raw.s.map(toPts), 0.8), { kanaMode: 'both' }).cands;
+      if (c.length > 1 && TWIN[c[0].ch] === c[1].ch && (c[0].score - c[1].score) < 0.06) {
+        tie++; if (c[0].ch === 'へ') tieHira++;
+      }
+    }
+  }
+  console.log(`  「ヘ／へ」が僅差になった回数 ${tie}（うち ひらがなを採った ${tieHira}）`);
+  check('僅差のときは必ずひらがな側を採る', tie > 0 && tie === tieHira, `${tieHira}/${tie}`);
 }
 
 /* ---------- 7. 表示用の筆跡正規化 ---------- */

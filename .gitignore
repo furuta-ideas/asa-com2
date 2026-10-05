@@ -4,3 +4,6 @@ model.json
 model_b64.json
 __pycache__/
 node_modules/
+package.json
+package-lock.json
+training/*.log

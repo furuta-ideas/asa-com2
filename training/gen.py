@@ -4,6 +4,7 @@
    いずれも、アプリが認識時に行うのと同じ正規化（外接矩形→正方形へ収める）で 48x48 にする。
 """
 import json, math, random, sys
+from multiprocessing import Pool, cpu_count
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -17,7 +18,11 @@ FONTS = [
 ]
 
 RAW = json.load(open(sys.argv[1] if len(sys.argv) > 1 else "templates.json"))
-CLASSES = sorted({r["ch"] for r in RAW}, key=lambda c: "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンー0123456789".index(c))
+# 並び順（アプリの「手書きを おぼえさせる」の字の並びにもなる）
+ORDER = ("アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンー"
+         "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
+         "0123456789")
+CLASSES = sorted({r["ch"] for r in RAW}, key=ORDER.index)
 CIDX = {c: i for i, c in enumerate(CLASSES)}
 
 
@@ -144,36 +149,45 @@ def jitter_image(a, rng=random):
     return np.asarray(img, dtype=np.uint8)
 
 
-def build(per_class_stroke, per_class_font, seed=0, sev_lo=.4, sev_hi=1.25, fonts=None):
+BY_CHAR = {}
+for _r in RAW:
+    BY_CHAR.setdefault(_r["ch"], []).append(tpl_strokes(_r))
+
+
+def build_char(args):
+    """1文字ぶんを作る（プロセスに分けて並列に走らせる）"""
+    ch, per_class_stroke, per_class_font, seed, sev_lo, sev_hi, fonts = args
     rng = random.Random(seed)
+    variants = BY_CHAR[ch]
+    X = []
+    for i in range(per_class_stroke):
+        st = variants[i % len(variants)]
+        img = render_strokes(distort(st, rng.uniform(sev_lo, sev_hi), rng), rng=rng)
+        if img is not None:
+            X.append(jitter_image(img, rng))
+    for i in range(per_class_font):
+        img = render_font(ch, fonts[i % len(fonts)], rng)
+        if img is not None:
+            X.append(jitter_image(img, rng))
+    return CIDX[ch], np.stack(X)
+
+
+def build(per_class_stroke, per_class_font, seed=0, sev_lo=.4, sev_hi=1.25, fonts=None):
     fonts = fonts if fonts is not None else FONTS
-    by_char = {}
-    for r in RAW:
-        by_char.setdefault(r["ch"], []).append(tpl_strokes(r))
+    jobs = [(ch, per_class_stroke, per_class_font, seed * 1000 + i, sev_lo, sev_hi, fonts)
+            for i, ch in enumerate(CLASSES)]
     X, Y = [], []
-    for ch in CLASSES:
-        variants = by_char[ch]
-        for i in range(per_class_stroke):
-            st = variants[i % len(variants)]
-            sev = rng.uniform(sev_lo, sev_hi)
-            img = render_strokes(distort(st, sev, rng), rng=rng)
-            if img is None:
-                continue
-            X.append(jitter_image(img, rng)); Y.append(CIDX[ch])
-        for i in range(per_class_font):
-            fp = fonts[i % len(fonts)]
-            img = render_font(ch, fp, rng)
-            if img is None:
-                continue
-            X.append(jitter_image(img, rng)); Y.append(CIDX[ch])
-    return np.stack(X), np.array(Y, dtype=np.int64)
+    with Pool(max(1, cpu_count())) as pool:
+        for ci, imgs in pool.imap(build_char, jobs):
+            X.append(imgs); Y.append(np.full(len(imgs), ci, dtype=np.int64))
+    return np.concatenate(X), np.concatenate(Y)
 
 
 if __name__ == "__main__":
     import time
     t = time.time()
-    Xtr, Ytr = build(900, 60, seed=1)
+    Xtr, Ytr = build(900, 80, seed=1)
     Xva, Yva = build(120, 12, seed=999, sev_lo=.5, sev_hi=1.5)
     np.savez_compressed("data.npz", Xtr=Xtr, Ytr=Ytr, Xva=Xva, Yva=Yva,
                         classes=np.array(CLASSES))
-    print(f"train {Xtr.shape} val {Xva.shape}  {time.time()-t:.0f}s")
+    print(f"train {Xtr.shape} val {Xva.shape}  クラス {len(CLASSES)}  {time.time()-t:.0f}s")

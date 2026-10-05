@@ -179,6 +179,62 @@ const row = page => page.$$eval('#cells .cell .ch', els => els.map(e => e.textCo
     await p3.close();
   }
 
+  /* ひらがな：既定（カタカナとひらがなの両方）で「か」を書いて濁点をつけると「が」になる。
+     「カタカナだけ」に設定すると、同じ筆跡がカタカナとして読まれる。 */
+  {
+    const KA_H = [[20,26, 44,25, 68,24, 68,44, 62,64, 50,82, 34,92],
+                  [44,10, 38,30, 32,56, 22,92],
+                  [82,28, 88,50]];
+    async function writeKa(settings) {
+      const pg = await browser.newPage({ viewport: { width: 1180, height: 820 } });
+      await pg.addInitScript(st => {
+        window.__spoken = [];
+        Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
+          getVoices: () => [{ name: 'Kyoko', lang: 'ja-JP', voiceURI: 'kyoko' }],
+          speak: u => window.__spoken.push(u.text),
+          cancel: () => {}, resume: () => {}, paused: false, speaking: false, pending: false, onvoiceschanged: null
+        }});
+        window.SpeechSynthesisUtterance = function (t) { this.text = t; this.volume = 1; };
+        try {
+          localStorage.removeItem('asacom2.ink');
+          if (st) localStorage.setItem('asacom2.settings', JSON.stringify(st));
+          else localStorage.removeItem('asacom2.settings');
+        } catch (e) {}
+      }, settings);
+      await pg.goto(FILE);
+      await pg.click('#start');
+      await pg.waitForTimeout(300);
+      const bx = await pg.$eval('#pad', el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+      const sz = Math.min(bx.w, bx.h) * 0.55, ox = bx.w * 0.2, oy = bx.h * 0.15;
+      await draw(pg, place(KA_H, bx, sz, ox, oy));
+      return { pg, bx, sz, ox, oy };
+    }
+
+    const hira = await writeKa(null);
+    expect('既定の設定でひらがな「か」が書ける', await row(hira.pg), 'か');
+    const dk = (dx, dy, s, bx, ox, oy) =>
+      [[{ x: bx.x + ox + dx, y: bx.y + oy + dy }, { x: bx.x + ox + dx + s * .5, y: bx.y + oy + dy + s }],
+       [{ x: bx.x + ox + dx + s * 1.3, y: bx.y + oy + dy }, { x: bx.x + ox + dx + s * 1.8, y: bx.y + oy + dy + s }]];
+    await draw(hira.pg, dk(hira.sz * 1.1, hira.sz * 0.1, hira.sz * 0.12, hira.bx, hira.ox, hira.oy));
+    expect('ひらがなにも濁点がつく（か＋゛→が）', await row(hira.pg), 'が');
+    /* トップ画面の案内も設定に合わせて変わる */
+    const gtext = await hira.pg.$eval('#gKanaText', e => e.textContent).catch(() => '');
+    expect('案内が「カタカナとひらがな」になっている', /カタカナとひらがな/.test(gtext) ? 'ok' : gtext, 'ok');
+    await hira.pg.close();
+
+    const kata = await writeKa({ kanaMode: 'kata' });
+    const got = await row(kata.pg);
+    const isHira = ch => ch >= '\u3041' && ch <= '\u3096';
+    /* ひらがなの「か」は3画。カタカナだけの設定では3画の該当字が無いので、
+       「カ」で確定して3画目が別の字になることがある。ここで確かめたいのは
+       「ひらがなが出ないこと」なので、文字数は問わない。 */
+    expect('「カタカナだけ」にすると ひらがなにはならない',
+      got.length > 0 && ![...got].some(isHira) ? 'ok' : `結果=${got}`, 'ok');
+    const gtext2 = await kata.pg.$eval('#gKanaText', e => e.textContent).catch(() => '');
+    expect('案内が「カタカナのみ」になっている', /カタカナのみ/.test(gtext2) ? 'ok' : gtext2, 'ok');
+    await kata.pg.close();
+  }
+
   /* 設定で OFF（＋読み取りを「きびしい」）にすると、これまでどおり「認識できません」と言う */
   {
     const p2 = await browser.newPage({ viewport: { width: 1180, height: 820 } });
